@@ -1,12 +1,13 @@
 import os
 import numpy as np
-
+from music21 import *
+from music21.converter.subConverters import ConverterMusicXML
 import io
 from music21 import midi
 from music21 import note, stream, duration, tempo
 from music21 import converter
 
-from keras.models import load_model
+from tensorflow.keras.models import load_model
 
 # MusicGenerator 클래스 호출시 generator.h5파일이 같은 폴더안에 있어어ㅑ함
 
@@ -68,3 +69,45 @@ class MusicGenerator():
 
                 parts.append(s)
                 parts.write('midi', fp=os.path.join(run_folder, "samples/{}.midi".format(filename)))
+
+    # notes_to_png
+    # run_folder : 파일 경로
+    # score : MusicGenerator의 Generate함수 출력 값
+    # filename : 파일 이름
+
+    # 필수 사전처리 항목 : lilypond  C:\에 설치 되어있어야함
+
+    def notes_to_png(self, run_folder, score, filename):
+        environment.set("lilypondPath", r"LilyPond\usr\bin\lilypond.exe")
+
+        for score_num in range(len(score)):
+
+            max_pitches = np.argmax(score, axis = 3)
+
+            midi_note_score = max_pitches[score_num].reshape([self.n_bars * self.n_steps_per_bar, self.n_tracks])
+            parts = stream.Score()
+            parts.append(tempo.MetronomeMark(number=66))
+
+            for i in range(self.n_tracks):
+                last_x = int(midi_note_score[:, i][0])
+                s = stream.Part()
+                dur = 0
+
+                for idx, x in enumerate(midi_note_score[:, i]):
+                    x = int(x)
+
+                    if (x != last_x or idx % 4 == 0) and idx > 0:
+                        n = note.Note(last_x)
+                        n.duration = duration.Duration(dur)
+                        s.append(n)
+                        dur = 0
+
+                    last_x = x
+                    dur = dur + 0.25
+
+                n = note.Note(last_x)
+                n.duration = duration.Duration(dur)
+                s.append(n)
+
+                parts.append(s)
+                parts.write('lily.png', fp=os.path.join(run_folder, "samples/{}.png".format(filename)))
