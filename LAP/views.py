@@ -27,7 +27,6 @@ from LAP.serializers import FileSerializer
 from music21 import midi
 
 from models.MusicGenerator import MusicGenerator
-import numpy as np
 
 from django.core.files import File
 from django.http import FileResponse
