@@ -7,7 +7,7 @@ from music21 import midi
 from music21 import note, stream, duration, tempo
 from music21 import converter
 
-from tensorflow.keras.models import load_model
+from keras.models import load_model
 
 # MusicGenerator 클래스 호출시 generator.h5파일이 같은 폴더안에 있어어ㅑ함
 
