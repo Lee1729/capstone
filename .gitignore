@@ -8,12 +8,10 @@ venv/
 *.pot
 *.pyc
 __pycache__/
-tutorial/settings.py
 db.sqlite3
 db.sqlite3-journal
 media
 .ipynb_checkpoints/
-models/samples/*
 tutorial/local_settings.py
 
 # If your build process includes running collectstatic, then you probably don't need or want to include staticfiles/
