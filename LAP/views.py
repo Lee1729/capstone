@@ -6,7 +6,7 @@ import requests
 
 from django.shortcuts import render, redirect
 
-from keras import backend as K
+from tensorflow.keras import backend as K
 from django.conf import settings
 from django.views.generic import ListView
 from django.views.generic import TemplateView
