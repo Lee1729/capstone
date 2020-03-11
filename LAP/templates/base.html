@@ -1,26 +1,61 @@
 {% load static %}
+<!DOCTYPE html>
+<html lang="ko">
 <head>
-  <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
-  <link rel="stylesheet" href="{% static 'css/cover.css' %}">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Like A Pianist</title>
+    <link rel="stylesheet" href="{% static 'css/main.css' %} ">
+    <link rel="stylesheet" href="{% static 'css/animate.min.css' %} ">
+    <link rel="stylesheet" href="{% static 'css/slick.css' %}">
+    <link rel="stylesheet" href="https://cdn.linearicons.com/free/1.0.0/icon-font.min.css">
+    <link rel="stylesheet" href="https://stackpath.bootstrapcdn.com/bootstrap/4.3.1/css/bootstrap.min.css" integrity="sha384-ggOyR0iXCbMQv3Xipma34MD+dH/1fQ784/j6cY/iJTQUOhcWr7x9JvoRxT2MZw1T" crossorigin="anonymous">
+
+   <!-- script-->
+   <script src="{% static 'js/jquery-3.3.1.min.js' %}"></script>
+   <script src="{% static 'js/scrolla.jquery.min.js' %}"></script>
+   <script src="{% static 'js/slick.min.js' %}"></script>
+   <script src="{% static 'js/script.js' %}"></script>
 </head>
 
-<body class="text-center">
-<div class="cover-container d-flex w-100 h-100 p-3 mx-auto flex-column">
-  <header class="masthead mb-auto">
-    <div class="inner">
-      <h3 class="masthead-brand">Like a Pianist</h3>
-      <nav class="nav nav-masthead justify-content-center">
-        <a class="nav-link" href="{% url 'home' %}">Home</a>
-        <a class="nav-link" href="{% url 'contactPage' %}">Contact</a>
-      </nav>
-    </div>
-  </header>
+<body>
+    <div class="wrap">
+        <header>
+            <div class="innerHeader">
+                <h1 class="logo"><a href="#">
+                    <img src="{% static 'img/Like A Pianist.png' %}" alt="로고">
+                    <img src="{% static 'img/Like A Pianist txt.png' %}" alt="로고">
+                </a></h1>
+                <!-- <h2 class="introTxt">Like a Pianist</h2> -->
+             <a href="#" class="menuOpen">MENU <span class="lnr lnr-menu"></span></a>
+            </div>
+        <!-- gnb-->
+        <nav class="gnb">
+            <a href="#" class="close"><span class="lnr lnr-cross"></span></a>
+            <ul>
+                <li><a href="{% url 'index' %}"> Home</a></li>
+                <li><a href="#">About</a></li>
+                <li><a href="#">Contact</a></li>
+            </ul>
+        </nav>
+        </header>
 
 {% block content %}
 
 {% endblock %}
-
-  <footer class="mastfoot mt-auto">
-  </footer>
-</div>
+    <!-- footer-->
+    <footer>
+        <ul>
+            <li>Like A Pianist<br>사업자등록번호:123456670 <br>대표자:Like A Pianist</li>
+            <li>
+                <span>A:</span>인천대학교<br>
+                <span>T:</span>010.1234.1234<br>
+                <span>E:</span>LikeApainist@abc.co.kr<br>
+            </li>
+            <li>@Like A Pianist All Rights Reserved</li>
+        </ul>
+        <a href="#top" class="goTop"><span class="lnr lnr-arrow-up"></span></a>
+    </footer>
+    </div>
 </body>
+</html>

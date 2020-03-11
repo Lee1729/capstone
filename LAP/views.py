@@ -31,9 +31,8 @@ from models.MusicGenerator import MusicGenerator
 from django.core.files import File
 from django.http import FileResponse
 
-def home(request):
-    return render(request, 'home.html')
-
+def index(request):
+    return render(request, 'index.html')
 
 @api_view(['GET'])
 def download(request):
@@ -49,6 +48,3 @@ def endPage(request):
     # music_gen.notes_to_png('models/', score, filename)
 
     return render(request, 'endPage.html')
-
-def contactPage(request):
-    return render(request, 'contactPage.html')
