@@ -1,0 +1,95 @@
+\version "2.18" 
+\include "lilypond-book-preamble.ly"
+    
+color = #(define-music-function (parser location color) (string?) #{
+        \once \override NoteHead #'color = #(x11-color color)
+        \once \override Stem #'color = #(x11-color color)
+        \once \override Rest #'color = #(x11-color color)
+        \once \override Beam #'color = #(x11-color color)
+     #})
+    
+\header { } 
+\score  { 
+ 
+      << \new Staff  = yawzeeexfbaca { fis'' 16  
+             g' 16  
+             fis'' 8  
+             ees'' 16  
+             g' 16  
+             ees'' 8  
+             fis'' 8.  
+             f'' 16  
+             e'' 4  
+             fis'' 16  
+             g' 16  
+             fis'' 8  
+             ees'' 16  
+             g' 16  
+             ees'' 8  
+             fis'' 8.  
+             f'' 16  
+             e'' 4  
+              } 
+            
+ 
+       \new Staff  = yawzdfzfybwca { a' 4  
+             bes' 4  
+             a' 4  
+             bes' 8  
+             a' 8  
+             a' 4  
+             bes' 4  
+             a' 4  
+             bes' 8  
+             a' 8  
+              } 
+            
+ 
+       \new Staff  = yawzccabwzcya { c' 4  
+             d' 8  
+             c' 16  
+             g 16  
+             d' 8  
+             f' 8  
+             d' 8  
+             c' 8  
+             c' 4  
+             d' 8  
+             c' 16  
+             g 16  
+             d' 8  
+             f' 8  
+             d' 8  
+             c' 8  
+              } 
+            
+ 
+       \new Staff  = yawzcefyfceaw { c' 4  
+             g 16  
+             bes, 16  
+             g 8  
+             g 4  
+             f 4  
+             d 16  
+             d' 16  
+             a 8  
+             g 16  
+             bes, 16  
+             g 8  
+             g 4  
+             f 4  
+              } 
+            
+ 
+        >>
+      
+  } 
+ 
+\paper { }
+\layout {
+  \context {
+    \RemoveEmptyStaffContext
+    \override VerticalAxisGroup #'remove-first = ##t
+  }
+ }
+ 
