@@ -45,6 +45,6 @@ def endPage(request):
     music_gen = MusicGenerator()
     score = music_gen.Generate()
     music_gen.notes_to_midi('models/', score, filename)
-    music_gen.notes_to_png('models/', score, filename)
+    #music_gen.notes_to_png('models/', score, filename)
 
     return render(request, 'endPage.html')
