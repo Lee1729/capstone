@@ -18,7 +18,7 @@ class MusicGenerator():
         self.n_bars = 2
         self.n_steps_per_bar = 16
         self.n_pitches = 84
-        self.generator = load_model('models/generator.h5', compile=False)
+        self.generator = load_model('models/generator.h5',compile=False)
 
     def Generate(self):
         chords_noise = np.random.normal(0, 1, (1, self.z_dim))
@@ -78,7 +78,7 @@ class MusicGenerator():
     # 필수 사전처리 항목 : lilypond  C:\에 설치 되어있어야함
 
     def notes_to_png(self, run_folder, score, filename):
-        environment.set("lilypondPath", "LilyPond/usr/bin/lilypond")
+        environment.set("lilypondPath", r"LilyPond\usr\bin\lilypond.exe")
 
         for score_num in range(len(score)):
 
