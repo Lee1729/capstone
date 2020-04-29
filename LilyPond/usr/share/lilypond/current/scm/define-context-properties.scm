@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 1998--2012  Han-Wen Nienhuys <hanwen@xs4all.nl>
+;;;; Copyright (C) 1998--2015  Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;;                  Jan Nieuwenhuizen <janneke@gnu.org>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
@@ -28,7 +28,7 @@
 
 
   (if (not (equal? #f (object-property symbol 'translation-doc)))
-      (ly:error (_ "symbol ~S redefined" symbol)))
+      (ly:error (_ "symbol ~S redefined") symbol))
 
   (set-object-property! symbol 'translation-type? type?)
   (set-object-property! symbol 'translation-doc description)
@@ -48,6 +48,9 @@
 on the same note in different octaves may be horizontally staggered
 if in different voices.")
      (aDueText ,markup? "Text to print at a unisono passage.")
+     (additionalBassStrings ,list? "The additional tablature bass-strings, which
+will not get a seprate line in TabStaff.  It is a list of the pitches of each
+string (starting with the lowest numbered one).")
      (additionalPitchPrefix ,string? "Text with which to prefix
 additional pitches within a chord name.")
      (alignAboveContext ,string? "Where to insert newly created context in
@@ -60,7 +63,13 @@ vertical alignment.")
 numbers.  Can be @code{numbers} for going back to the same number or
 @code{numbers-with-letters} for going back to the same number with letter
 suffixes.  No setting will not go back in measure-number time.")
-     (associatedVoice ,string? "Name of the @code{Voice} that has the
+     (alternativeRestores ,symbol-list? "Timing variables that are
+restored to their value at the start of the first alternative in
+subsequent alternatives.")
+     (associatedVoice ,string? "Name of the context (see
+@code{associatedVoiceType} for its type, usually @code{Voice}) that
+has the melody for this @code{Lyrics} line.")
+     (associatedVoiceType ,symbol? "Type of the context that has the
 melody for this @code{Lyrics} line.")
      (autoAccidentals ,list? "List of different ways to typeset an
 accidental.
@@ -170,9 +179,6 @@ own as a subdivided section.")
 called to produce the formatting for a @code{BassFigure} grob.  It
 takes a list of @code{BassFigureEvent}s, a context, and the grob to
 format.")
-     (bassStaffProperties ,list? "An alist of property settings to
-apply for the down staff of @code{PianoStaff}.  Used by
-@code{\\autochange}.")
      (beamExceptions ,list? "An alist of exceptions to autobeam rules
 that normally end on beats.")
      (beamHalfMeasure ,boolean? "Whether to allow a beam to begin
@@ -215,6 +221,17 @@ and @samp{bracketed}.")
 symbol go, measured in half staff spaces from the center of the
 staff.")
      (completionBusy ,boolean? "Whether a completion-note head is playing.")
+     (completionFactor ,rational-or-procedure?
+"When @code{Completion_heads_engraver} and
+@code{Completion_rest_engraver} need to split a note or rest with a
+scaled duration, such as @code{c2*3}, this specifies the scale factor
+to use for the newly-split notes and rests created by the engraver.
+
+If @code{#f}, the completion engraver uses the scale-factor of
+each duration being split.
+
+If set to a callback procedure, that procedure is called with the
+context of the completion engraver, and the duration to be split.")
      (completionUnit ,ly:moment? "Sub-bar unit of completion.")
      (connectArpeggios ,boolean? "If set, connect arpeggios across
 piano staff.")
@@ -268,8 +285,8 @@ slurred note, one above and one below the chord.")
 instruments (symbols) to pitches.")
      (drumStyleTable ,hash-table? "A hash table which maps drums to
 layout settings.  Predefined values: @samp{drums-style},
-@samp{timbales-style}, @samp{congas-style}, @samp{bongos-style}, and
-@samp{percussion-style}.
+@samp{agostini-drums-style}, @samp{timbales-style}, @samp{congas-style},
+@samp{bongos-style}, and @samp{percussion-style}.
 
 The layout style is a hash table, containing the drum-pitches (e.g.,
 the symbol @samp{hihat}) as keys, and a list
@@ -353,8 +370,8 @@ string selector for tablature notation.")
 @rinternals{Lyrics} line.")
      (implicitBassFigures ,list? "A list of bass figures that are not
 printed as numbers, but only as extender lines.")
-     (implicitTimeSignatureVisibility ,vector? "break visibility for
-the default time signature.")
+     (initialTimeSignatureVisibility ,vector? "break visibility for
+the initial time signature.")
      (includeGraceNotes ,boolean? "Do not ignore grace notes for
 @rinternals{Lyrics}.")
      (instrumentCueName ,markup? "The name to print if another
@@ -382,12 +399,12 @@ alterations should be printed.  The format is
 @code{(@var{step} . @var{alter})},
 where @var{step} is a number from 0 to@tie{}6 and
 @var{alter} from -2 (sharp) to 2 (flat).")
-     (keySignature ,list? "The current key signature.  This is an alist
+     (keyAlterations ,list? "The current key signature.  This is an alist
 containing @code{(@var{step} . @var{alter})} or
 @code{((@var{octave} . @var{step}) . @var{alter})}, where @var{step}
 is a number in the range 0 to@tie{}6 and @var{alter} a fraction,
 denoting alteration.  For alterations, use symbols, e.g.
-@code{keySignature = #`((6 . ,FLAT))}.")
+@code{keyAlterations = #`((6 . ,FLAT))}.")
 
 
      (lyricMelismaAlignment ,number? "Alignment to use for a melisma syllable.")
@@ -444,12 +461,15 @@ associated with the current context.  Ranges from@tie{}@w{-1} to@tie{}1,
 where the values@tie{}@w{-1} (@code{#LEFT}),@tie{}0 (@code{#CENTER})
 and@tie{}1 (@code{#RIGHT}) correspond to hard left, center, and hard
 right, respectively.")
-     (midiReverbLevel ,number? "Reverb effect level for the MIDI channel
-associated with the current context.  Ranges from 0 to@tie{}1
-(0=off,@tie{}1=full effect).")
-     (midiChorusLevel ,number? "Chorus effect level for the MIDI channel
-associated with the current context.  Ranges from 0 to@tie{}1
-(0=off,@tie{}1=full effect).")
+     (midiExpression ,number? "Expression control for the MIDI
+channel associated with the current context.  Ranges from 0
+to@tie{}1 (0=off,@tie{}1=full effect).")
+     (midiReverbLevel ,number? "Reverb effect level for the MIDI
+channel associated with the current context.  Ranges from 0
+to@tie{}1 (0=off,@tie{}1=full effect).")
+     (midiChorusLevel ,number? "Chorus effect level for the MIDI
+channel associated with the current context.  Ranges from 0
+to@tie{}1 (0=off,@tie{}1=full effect).")
      (minimumFret ,number? "The tablature auto string-selecting
 mechanism selects the highest string with a fret at least
 @code{minimumFret}.")
@@ -467,7 +487,10 @@ ChordNames context.")
 defined strings to full list of strings and fret numbers.
 Parameters: The context, a list of note events, a list of
 tabstring events, and the fretboard grob if a fretboard is desired.")
-
+     (nullAccidentals ,boolean? "The @code{Accidental_engraver}
+generates no accidentals for notes in contexts were this is set.
+In addition to supressing the printed accidental, this option removes
+any effect the note would have had on accidentals in other voices.")
 
      (ottavation ,markup? "If set, the text for an ottava spanner.
 Changing this creates a new text spanner.")
@@ -475,6 +498,9 @@ Changing this creates a new text spanner.")
 translator during music interpretation.")
 
 
+     (partCombineForced ,symbol? "Override for the partcombine
+decision.  Can be @code{apart}, @code{chords}, @code{unisono},
+@code{solo1}, or @code{solo2}.")
      (partCombineTextsOnNote ,boolean? "Print part-combine texts only on
 the next note rather than immediately on rests or skips.")
      (pedalSostenutoStrings ,list? "See @code{pedalSustainStrings}.")
@@ -548,6 +574,8 @@ part-combining.")
 @rinternals{Pitch_squash_engraver}.")
      (staffLineLayoutFunction ,procedure? "Layout of staff lines,
 @code{traditional}, or @code{semitone}.")
+     (magnifyStaffValue ,positive? "The most recent value set with
+@code{\\magnifyStaff}.")
      (stanza ,markup? "Stanza @q{number} to print before the start of a
 verse.  Use in @code{Lyrics} context.")
      (startRepeatSegnoType ,string? "Set the default bar line for the
@@ -573,6 +601,8 @@ one).")
 subdivided at @code{baseMoment} positions by only drawing one beam over the beat.")
      (suggestAccidentals ,boolean? "If set, accidentals are typeset as
 cautionary suggestions over the note.")
+     (supportNonIntegerFret ,boolean? "If set in @code{Score} the
+@code{TabStaff} will print micro-tones as @samp{2½}")
      (systemStartDelimiter ,symbol? "Which grob to make for the start
 of the system/@/staff?  Set to @code{SystemStartBrace},
 @code{SystemStartBracket} or @code{SystemStartBar}.")
@@ -605,11 +635,6 @@ position, bar number, etc.?  Switch off for cadenzas.")
      (topLevelAlignment ,boolean? "If true, the @var{Vertical_align_engraver}
 will create a @var{VerticalAlignment}; otherwise, it will create a
 @var{StaffGrouper}")
-     (trebleStaffProperties ,list? "An alist of property settings to
-apply for the up staff of @code{PianoStaff}.  Used by
-@code{\\autochange}.")
-     (tremoloFlags ,integer? "The number of tremolo flags to add if no
-number is specified.")
      (tupletFullLength ,boolean? "If set, the tuplet is printed up to
 the start of the next note.")
      (tupletFullLengthNote ,boolean? "If set, end at the next note,
@@ -648,6 +673,8 @@ Example:
 @noindent
 This will create a start-repeat bar in this staff only.  Valid values
 are described in @file{scm/bar-line.scm}.")
+     (suspendRestMerging ,boolean? "When using the Merge_rest_engraver do not
+                         merge rests when this is set to true.")
      )))
 
 
@@ -697,10 +724,11 @@ in an axis group.")
 @code{CommandColumn} contains items that will affect spacing.")
 
 
-     (lastKeySignature ,list? "Last key signature before a key
+     (lastChord ,markup? "Last chord, used for detecting chord changes.")
+     (lastKeyAlterations ,list? "Last key signature before a key
 signature change.")
-     (localKeySignature ,list? "The key signature at this point in the
-measure.  The format is the same as for @code{keySignature}, but can
+     (localAlterations ,list? "The key signature at this point in the
+measure.  The format is the same as for @code{keyAlterations}, but can
 also contain @code{((@var{octave} . @var{name}) . (@var{alter}
 @var{barnumber} . @var{measureposition}))} pairs.")
 
@@ -708,6 +736,9 @@ also contain @code{((@var{octave} . @var{name}) . (@var{alter}
      (melismaBusy ,boolean? "Signifies whether a melisma is active.
 This can be used to signal melismas on top of those automatically
 detected.")
+
+
+     (partialBusy ,boolean? "Signal that \\partial acts at the current timestep.")
 
 
      (quotedCueEventTypes ,list? "A list of symbols, representing the

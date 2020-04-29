@@ -1,4 +1,4 @@
-#!/home/gub/gub/target/tools/root/usr/bin/python
+#!/home/gub/NewGub/gub/target/tools/root/usr/bin/python
 
 import pydoc
 if __name__ == '__main__':

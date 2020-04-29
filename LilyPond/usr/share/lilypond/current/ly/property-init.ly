@@ -1,6 +1,6 @@
 % property-init.ly
 
-\version "2.17.24"
+\version "2.19.22"
 
 %% for dashed slurs, phrasing slurs, and ties
 #(define (make-simple-dash-definition dash-fraction dash-period)
@@ -8,14 +8,14 @@
 
 %% common definition for all note head styles reverting
 %% (palm mute, harmonics, dead notes, ...)
-defaultNoteHeads =
-#(define-music-function (parser location) ()
-   (_i "Revert to the default note head style.")
-   (revert-head-style '(NoteHead TabNoteHead)))
+defaultNoteHeads = {
+  \revert NoteHead.style
+  \revert TabNoteHead.style
+}
 
 accidentalStyle =
 #(define-music-function
-   (parser location style) (symbol-list?)
+   (style) (symbol-list?)
    (_i "Set accidental style to symbol list @var{style} in the form
 @samp{piano-cautionary}.  If @var{style} has a form like
 @samp{Staff.piano-cautionary}, the settings are applied to that
@@ -25,8 +25,8 @@ piano styles, which use @samp{GrandStaff} as a context." )
     ((1) (set-accidental-style (car style)))
     ((2) (set-accidental-style (cadr style) (car style)))
     (else
-     (ly:parser-error parser (_ "not an accidental style")
-      location)
+     (ly:parser-error (_ "not an accidental style")
+      (*location*))
      (make-music 'Music))))
 
 %% arpeggios
@@ -91,7 +91,7 @@ balloonLengthOff = {
 
 defineBarLine =
 #(define-void-function
-   (parser location bar glyph-list) (string? list?)
+   (bar glyph-list) (string? list?)
    (_i "Define bar line settings for bar line @var{bar}.
      The list @var{glyph-list} must have three entries which define
      the appearance at the end of line, at the beginning of the next line,
@@ -184,26 +184,13 @@ dynamicNeutral = {
 
 easyHeadsOn = {
   \override NoteHead.stencil = #note-head::brew-ez-stencil
-  \override NoteHead.font-size = #-8
   \override NoteHead.font-family = #'sans
   \override NoteHead.font-series = #'bold
 }
 easyHeadsOff = {
   \revert NoteHead.stencil
-  \revert NoteHead.font-size
   \revert NoteHead.font-family
   \revert NoteHead.font-series
-}
-
-
-%% endincipit
-
-%% End the incipit and print a ``normal line start''.
-endincipit = \context Staff {
-  \partial 16 s16  % Hack to handle e.g. \bar ".|" \endincipit
-  \once \override Staff.Clef.full-size-change = ##t
-  \once \override Staff.Clef.non-default = ##t
-  \bar ""
 }
 
 
@@ -211,10 +198,10 @@ endincipit = \context Staff {
 
 fermataMarkup =
 #(make-music 'MultiMeasureTextEvent
-	     ;; Set the 'text based on the 'direction
-	     'text (make-fermata-markup)
+             ;; Set the 'text based on the 'direction
+             'text (make-fermata-markup)
              'tweaks '((outside-staff-priority . 40)
-		       (outside-staff-padding . 0)))
+                       (outside-staff-padding . 0)))
 
 %% font sizes
 
@@ -234,12 +221,13 @@ glissando = #(make-music 'GlissandoEvent)
 %% harmonics
 
 harmonicsOn =
-#(define-music-function (parser location) ()
-   (_i "Set the default note head style to a diamond-shaped style.")
-   (override-head-style '(NoteHead TabNoteHead) 'harmonic))
+#(define-music-function () ()
+  (_i "Set the default note head style to a diamond-shaped style.")
+  (context-spec-music
+   (override-head-style '(NoteHead TabNoteHead) 'harmonic) 'Bottom))
 harmonicsOff = \defaultNoteHeads
 harmonicNote =
-#(define-music-function (parser location note) (ly:music?)
+#(define-music-function (note) (ly:music?)
    (_i "Print @var{note} with a diamond-shaped note head.")
    (style-note-heads 'NoteHead 'harmonic note))
 
@@ -273,15 +261,67 @@ unHideNotes = {
 improvisationOn = {
   \set squashedPosition = #0
   \override NoteHead.style = #'slash
+  \override TabNoteHead.style = #'slash
   \override Accidental.stencil = ##f
   \override AccidentalCautionary.stencil = ##f
 }
 improvisationOff = {
   \unset squashedPosition
   \revert NoteHead.style
+  \revert TabNoteHead.style
   \revert Accidental.stencil
   \revert AccidentalCautionary.stencil
 }
+
+%% incipit
+
+incipit =
+#(define-music-function (incipit-music) (ly:music?)
+  (_i "Output @var{incipit-music} before the main staff as an indication of
+    its appearance in the original music.")
+  #{
+    \once \override Staff.InstrumentName.stencil =
+      #(lambda (grob)
+        (let* ((instrument-name (ly:grob-property grob 'long-text))
+               (align-x (ly:grob-property grob 'self-alignment-X 0))
+               (align-y (ly:grob-property grob 'self-alignment-Y 0)))
+        (set! (ly:grob-property grob 'long-text)
+          #{ \markup {
+            \score
+            {
+              \new MensuralStaff \with {
+                \override InstrumentName.self-alignment-X = #align-x
+                \override InstrumentName.self-alignment-Y = #align-y
+                instrumentName = #instrument-name
+              }
+              {
+                $incipit-music
+              }
+              \layout {
+                $(ly:grob-layout grob)
+                indent-incipit-default = 15\mm
+                line-width = #(primitive-eval
+                  '(or (false-if-exception indent)
+                    indent-incipit-default))
+                indent = #(primitive-eval
+                           '(or (false-if-exception (- line-width incipit-width))
+                            (* 0.5 line-width)))
+                ragged-right = ##f
+                ragged-last = ##f
+                system-count = 1
+                \context {
+                  \Score
+                  \remove "Default_bar_line_engraver"
+                }
+              }
+            }
+            }
+          #})
+          (set! (ly:grob-property grob 'self-alignment-Y) #f)
+          (set! (ly:grob-property grob 'self-alignment-X) RIGHT)
+          (system-start-text::print grob)))
+  #}
+)
 
 %% kievan
 kievanOn = {
@@ -313,6 +353,24 @@ kievanOff = {
  \revert NoteHead.duration-log
 }
 
+%% line and page breaking controls
+
+autoLineBreaksOff = {
+  \overrideProperty Score.NonMusicalPaperColumn.line-break-permission ##f
+  \override Score.NonMusicalPaperColumn.line-break-permission = ##f
+}
+autoLineBreaksOn = {
+  \overrideProperty Score.NonMusicalPaperColumn.line-break-permission #'allow
+  \override Score.NonMusicalPaperColumn.line-break-permission = #'allow
+}
+autoPageBreaksOff =
+  \override Score.NonMusicalPaperColumn.page-break-permission = ##f
+autoPageBreaksOn =
+  \override Score.NonMusicalPaperColumn.page-break-permission = #'allow
+autoBreaksOff = { \autoLineBreaksOff \autoPageBreaksOff }
+autoBreaksOn = { \autoLineBreaksOn \autoPageBreaksOn }
+
+
 %% merging
 
 mergeDifferentlyDottedOn =
@@ -334,14 +392,30 @@ defaultTimeSignature = \revert Staff.TimeSignature.style
 %% palm mutes
 
 palmMuteOn =
-#(define-music-function (parser location) ()
-   (_i "Set the default note head style to a triangle-shaped style.")
-   (override-head-style 'NoteHead 'do))
+#(define-music-function () ()
+  (_i "Set the default note head style to a triangle-shaped style.")
+  (context-spec-music
+   (override-head-style 'NoteHead 'do) 'Bottom))
 palmMuteOff = \defaultNoteHeads
 palmMute =
-#(define-music-function (parser location note) (ly:music?)
+#(define-music-function (note) (ly:music?)
    (_i "Print @var{note} with a triangle-shaped note head.")
    (style-note-heads 'NoteHead 'do note))
+
+%% part combiner
+
+partcombineForce =
+#(define-music-function (type) ((symbol?))
+   (_i "Override the part-combiner.")
+   (if type (propertySet 'partCombineForced type)
+       (propertyUnset 'partCombineForced)))
+
+partcombineApart = \partcombineForce #'apart
+partcombineChords = \partcombineForce #'chords
+partcombineUnisono = \partcombineForce #'unisono
+partcombineSoloI = \partcombineForce #'solo1
+partcombineSoloII = \partcombineForce #'solo2
+partcombineAutomatic = \partcombineForce \default
 
 
 %% phrasing slurs
@@ -353,7 +427,7 @@ phrasingSlurNeutral = \revert PhrasingSlur.direction
 
 % dash-patterns (make-simple-dash-definition defined at top of file)
 phrasingSlurDashPattern =
-#(define-music-function (parser location dash-fraction dash-period)
+#(define-music-function (dash-fraction dash-period)
    (number? number?)
    (_i "Set up a custom style of dash pattern for @var{dash-fraction} ratio of
 line to space repeated at @var{dash-period} interval for phrasing slurs.")
@@ -367,10 +441,10 @@ phrasingSlurDotted =
   \override PhrasingSlur.dash-definition = #'((0 1 0.1 0.75))
 phrasingSlurHalfDashed =
   \override PhrasingSlur.dash-definition = #'((0 0.5 0.4 0.75)
-						(0.5 1 1 1))
+                                                (0.5 1 1 1))
 phrasingSlurHalfSolid =
   \override PhrasingSlur.dash-definition = #'((0 0.5 1 1)
-						(0.5 1 0.4 0.75))
+                                                (0.5 1 0.4 0.75))
 phrasingSlurSolid =
   \revert PhrasingSlur.dash-definition
 
@@ -378,20 +452,20 @@ phrasingSlurSolid =
 %% point and click
 
 pointAndClickOn  =
-#(define-void-function (parser location) ()
+#(define-void-function () ()
    (_i "Enable generation of code in final-format (e.g. pdf) files to reference the
 originating lilypond source statement;
 this is helpful when developing a score but generates bigger final-format files.")
    (ly:set-option 'point-and-click #t))
 
 pointAndClickOff =
-#(define-void-function (parser location) ()
+#(define-void-function () ()
    (_i "Suppress generating extra code in final-format (e.g. pdf) files to point
 back to the lilypond source statement.")
    (ly:set-option 'point-and-click #f))
 
 pointAndClickTypes =
-#(define-void-function (parser location types) (symbol-list-or-symbol?)
+#(define-void-function (types) (symbol-list-or-symbol?)
   (_i "Set a type or list of types (such as @code{#'note-event}) for which point-and-click info is generated.")
   (ly:set-option 'point-and-click types))
 
@@ -425,10 +499,10 @@ walkerHeadsMinor =
 
 %% shifts
 
+shiftOff  = \override NoteColumn.horizontal-shift = #0
 shiftOn   = \override NoteColumn.horizontal-shift = #1
 shiftOnn  = \override NoteColumn.horizontal-shift = #2
 shiftOnnn = \override NoteColumn.horizontal-shift = #3
-shiftOff  = \revert NoteColumn.horizontal-shift
 
 
 %% slurs
@@ -440,7 +514,7 @@ slurNeutral    = \revert Slur.direction
 
 % dash-patterns (make-simple-dash-definition defined at top of file)
 slurDashPattern =
-#(define-music-function (parser location dash-fraction dash-period)
+#(define-music-function (dash-fraction dash-period)
   (number? number?)
   (_i "Set up a custom style of dash pattern for @var{dash-fraction}
 ratio of line to space repeated at @var{dash-period} interval for slurs.")
@@ -451,9 +525,9 @@ ratio of line to space repeated at @var{dash-period} interval for slurs.")
 slurDashed     = \override Slur.dash-definition = #'((0 1 0.4 0.75))
 slurDotted     = \override Slur.dash-definition = #'((0 1 0.1 0.75))
 slurHalfDashed = \override Slur.dash-definition = #'((0 0.5 0.4 0.75)
-						       (0.5 1 1 1))
+                                                       (0.5 1 1 1))
 slurHalfSolid  = \override Slur.dash-definition = #'((0 0.5 1 1)
-						       (0.5 1 0.4 0.75))
+                                                       (0.5 1 0.4 0.75))
 slurSolid      = \revert Slur.dash-definition
 
 
@@ -468,6 +542,22 @@ hideStaffSwitch = \set followVoice = ##f
 stemUp      = \override Stem.direction = #UP
 stemDown    = \override Stem.direction = #DOWN
 stemNeutral = \revert Stem.direction
+
+
+%% string numbers
+
+romanStringNumbers  = {
+  \override StringNumber.number-type = #'roman-upper
+  \override StringNumber.stencil = #ly:text-interface::print
+  \override StringNumber.font-encoding = #'latin1
+  \override StringNumber.font-shape = #'italic
+}
+arabicStringNumbers = {
+  \revert StringNumber.number-type
+  \revert StringNumber.stencil
+  \revert StringNumber.font-encoding
+  \revert StringNumber.font-shape
+}
 
 
 %% tablature
@@ -579,7 +669,7 @@ tieNeutral = \revert Tie.direction
 
 % dash-patterns (make-simple-dash-definition defined at top of file)
 tieDashPattern =
-#(define-music-function (parser location dash-fraction dash-period)
+#(define-music-function (dash-fraction dash-period)
   (number? number?)
   (_i "Set up a custom style of dash pattern for @var{dash-fraction}
 ratio of line to space repeated at @var{dash-period} interval for ties.")
@@ -590,9 +680,9 @@ ratio of line to space repeated at @var{dash-period} interval for ties.")
 tieDashed     = \override Tie.dash-definition = #'((0 1 0.4 0.75))
 tieDotted     = \override Tie.dash-definition = #'((0 1 0.1 0.75))
 tieHalfDashed = \override Tie.dash-definition = #'((0 0.5 0.4 0.75)
-						     (0.5 1 1 1))
+                                                     (0.5 1 1 1))
 tieHalfSolid  = \override Tie.dash-definition = #'((0 0.5 1 1)
-						     (0.5 1 0.4 0.75))
+                                                     (0.5 1 0.4 0.75))
 tieSolid      = \revert Tie.dash-definition
 
 
@@ -650,21 +740,42 @@ voiceNeutralStyle = {
 %% volta brackets
 
 allowVoltaHook =
-#(define-void-function (parser location bar) (string?)
+#(define-void-function (bar) (string?)
+  (_i "Allow the volta bracket hook being drawn over bar line @var{bar}.")
                        (allow-volta-hook bar))
 
 %% x notes
 
-xNotesOn =
-#(define-music-function (parser location) ()
-   (_i "Set the default note head style to a cross-shaped style.")
-   (override-head-style '(TabNoteHead NoteHead) 'cross))
-xNotesOff = \defaultNoteHeads
-xNote =
-#(define-music-function (parser location note) (ly:music?)
-   (_i "Print @var{note} with a cross-shaped note head.")
-   (style-note-heads '(TabNoteHead NoteHead) 'cross note))
+#(define (cross-style grob)
+;; Returns the symbol 'cross to set the 'style-property for (Tab-)NoteHead.
+;; If the current text-font doesn't contain the glyph set 'font-name to '()
+;; and 'font-family to 'feta.
+;; If 'feta is replaced by another music-font without cross-style-glyphs
+;; note-head.cc throws a warning and no visual output happens.
+  (let* ((layout (ly:grob-layout grob))
+         (props (ly:grob-alist-chain grob))
+         (font (ly:paper-get-font layout props))
+         (font-unknown? (string=? (ly:font-name font) "unknown")))
+    (if font-unknown?
+        (begin
+          (ly:grob-set-property! grob 'font-name '())
+          (ly:grob-set-property! grob 'font-family 'feta)))
+    'cross))
 
+%% Set the default note head style to a cross-shaped style.
+xNotesOn = {
+  \temporary \override NoteHead.style = #cross-style
+  \temporary \override TabNoteHead.style = #cross-style
+}
+
+xNotesOff = \defaultNoteHeads
+
+xNote =
+#(define-music-function (note) (ly:music?)
+  (_i "Print @var{note} with a cross-shaped note head.")
+   (if (eq? (ly:music-property note 'name) 'NoteEvent)
+       #{ \tweak style #cross-style $note #}
+       #{ \xNotesOn $note \xNotesOff #}))
 
 %% dead notes (these need to come after "x notes")
 

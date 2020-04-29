@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 1998--2012 Jan Nieuwenhuizen <janneke@gnu.org>
+;;;; Copyright (C) 1998--2015 Jan Nieuwenhuizen <janneke@gnu.org>
 ;;;; Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
@@ -22,6 +22,8 @@
 ;; for define-safe-public when byte-compiling using Guile V2
 (use-modules (scm safe-utility-defs))
 
+(use-modules (ice-9 pretty-print))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; constants.
 
@@ -34,17 +36,6 @@
 (define-public UP 1)
 (define-public DOWN -1)
 (define-public CENTER 0)
-
-(define-safe-public DOUBLE-FLAT-QTS -4)
-(define-safe-public THREE-Q-FLAT-QTS -3)
-(define-safe-public FLAT-QTS -2)
-(define-safe-public SEMI-FLAT-QTS -1)
-(define-safe-public NATURAL-QTS 0)
-(define-safe-public SEMI-SHARP-QTS 1)
-(define-safe-public SHARP-QTS 2)
-(define-safe-public THREE-Q-SHARP-QTS 3)
-(define-safe-public DOUBLE-SHARP-QTS 4)
-(define-safe-public SEMI-TONE-QTS 2)
 
 (define-safe-public DOUBLE-FLAT  -1)
 (define-safe-public THREE-Q-FLAT -3/4)
@@ -79,6 +70,11 @@
 (define-public (moment->fraction moment)
   (cons (ly:moment-main-numerator moment)
         (ly:moment-main-denominator moment)))
+
+(define-public (seconds->moment s context)
+  "Return a moment equivalent to s seconds at the current tempo."
+  (ly:moment-mul (ly:context-property context 'tempoWholesPerMinute)
+                 (ly:make-moment (/ s 60))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; durations
@@ -116,6 +112,16 @@ non-visual scale factor 1."
 duration (base note length and dot count), as a number of whole notes."
   (duration-length (duration-visual dur)))
 
+(define-public (unity-if-multimeasure context dur)
+  "Given a context and a duration, return @code{1} if the duration is
+longer than the @code{measureLength} in that context, and @code{#f} otherwise.
+This supports historic use of @code{Completion_heads_engraver} to split
+@code{c1*3} into three whole notes."
+  (if (ly:moment<? (ly:context-property context 'measureLength)
+                   (ly:duration-length dur))
+    1
+    #f))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; arithmetic
 (define-public (average x . lst)
@@ -124,27 +130,25 @@ duration (base note length and dot count), as a number of whole notes."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; parser <-> output hooks.
 
-(define-public (collect-bookpart-for-book parser book-part)
+(define-public (collect-bookpart-for-book book-part)
   "Toplevel book-part handler."
   (define (add-bookpart book-part)
-    (ly:parser-define!
-     parser 'toplevel-bookparts
-     (cons book-part (ly:parser-lookup parser 'toplevel-bookparts))))
+    (ly:parser-define! 'toplevel-bookparts
+     (cons book-part (ly:parser-lookup 'toplevel-bookparts))))
   ;; If toplevel scores have been found before this \bookpart,
   ;; add them first to a dedicated bookpart
-  (if (pair? (ly:parser-lookup parser 'toplevel-scores))
+  (if (pair? (ly:parser-lookup 'toplevel-scores))
       (begin
         (add-bookpart (ly:make-book-part
-                       (ly:parser-lookup parser 'toplevel-scores)))
-        (ly:parser-define! parser 'toplevel-scores (list))))
+                       (ly:parser-lookup 'toplevel-scores)))
+        (ly:parser-define! 'toplevel-scores (list))))
   (add-bookpart book-part))
 
-(define-public (collect-scores-for-book parser score)
-  (ly:parser-define!
-   parser 'toplevel-scores
-   (cons score (ly:parser-lookup parser 'toplevel-scores))))
+(define-public (collect-scores-for-book score)
+  (ly:parser-define! 'toplevel-scores
+   (cons score (ly:parser-lookup 'toplevel-scores))))
 
-(define-public (collect-music-aux score-handler parser music)
+(define-public (collect-music-aux score-handler music)
   (define (music-property symbol)
     (ly:music-property music symbol #f))
   (cond ((music-property 'page-marker)
@@ -165,54 +169,52 @@ duration (base note length and dot count), as a number of whole notes."
         ((not (music-property 'void))
          ;; a regular music expression: make a score with this music
          ;; void music is discarded
-         (score-handler (scorify-music music parser)))))
+         (score-handler (scorify-music music)))))
 
-(define-public (collect-music-for-book parser music)
+(define-public (collect-music-for-book music)
   "Top-level music handler."
   (collect-music-aux (lambda (score)
-                       (collect-scores-for-book parser score))
-                     parser
+                       (collect-scores-for-book score))
                      music))
 
-(define-public (collect-book-music-for-book parser book music)
+(define-public (collect-book-music-for-book book music)
   "Book music handler."
   (collect-music-aux (lambda (score)
                        (ly:book-add-score! book score))
-                     parser
                      music))
 
-(define-public (scorify-music music parser)
+(define-public (scorify-music music)
   "Preprocess @var{music}."
   (ly:make-score
-   (fold (lambda (f m) (f m parser))
+   (fold (lambda (f m) (f m))
          music
          toplevel-music-functions)))
 
-(define (get-current-filename parser book)
+(define (get-current-filename book)
   "return any suffix value for output filename allowing for settings by
 calls to bookOutputName function"
-  (or (paper-variable parser book 'output-filename)
-      (ly:parser-output-name parser)))
+  (or (paper-variable book 'output-filename)
+      (ly:parser-output-name)))
 
-(define (get-current-suffix parser book)
+(define (get-current-suffix book)
   "return any suffix value for output filename allowing for settings by calls to
 bookoutput function"
-  (let ((book-output-suffix (paper-variable parser book 'output-suffix)))
+  (let ((book-output-suffix (paper-variable book 'output-suffix)))
     (if (not (string? book-output-suffix))
-        (ly:parser-lookup parser 'output-suffix)
+        (ly:parser-lookup 'output-suffix)
         book-output-suffix)))
 
 (define-public current-outfile-name #f)  ; for use by regression tests
 
-(define (get-outfile-name parser book)
+(define (get-outfile-name book)
   "return current filename for generating backend output files"
   ;; user can now override the base file name, so we have to use
   ;; the file-name concatenated with any potential output-suffix value
   ;; as the key to out internal a-list
-  (let* ((base-name (get-current-filename parser book))
-         (output-suffix (get-current-suffix parser book))
+  (let* ((base-name (get-current-filename book))
+         (output-suffix (get-current-suffix book))
          (alist-key (format #f "~a~a" base-name output-suffix))
-         (counter-alist (ly:parser-lookup parser 'counter-alist))
+         (counter-alist (ly:parser-lookup 'counter-alist))
          (output-count (assoc-get alist-key counter-alist 0))
          (result base-name))
     ;; Allow all ASCII alphanumerics, including accents
@@ -229,64 +231,62 @@ bookoutput function"
     (if (> output-count 0)
         (set! result (format #f "~a-~a" result output-count)))
 
-    (ly:parser-define!
-     parser 'counter-alist
+    (ly:parser-define! 'counter-alist
      (assoc-set! counter-alist alist-key (1+ output-count)))
     (set! current-outfile-name result)
     result))
 
-(define (print-book-with parser book process-procedure)
-  (let* ((paper (ly:parser-lookup parser '$defaultpaper))
-         (layout (ly:parser-lookup parser '$defaultlayout))
-         (outfile-name (get-outfile-name parser book)))
+(define (print-book-with book process-procedure)
+  (let* ((paper (ly:parser-lookup '$defaultpaper))
+         (layout (ly:parser-lookup '$defaultlayout))
+         (outfile-name (get-outfile-name book)))
     (process-procedure book paper layout outfile-name)))
 
-(define-public (print-book-with-defaults parser book)
-  (print-book-with parser book ly:book-process))
+(define-public (print-book-with-defaults book)
+  (print-book-with book ly:book-process))
 
-(define-public (print-book-with-defaults-as-systems parser book)
-  (print-book-with parser book ly:book-process-to-systems))
+(define-public (print-book-with-defaults-as-systems book)
+  (print-book-with book ly:book-process-to-systems))
 
 ;; Add a score to the current bookpart, book or toplevel
-(define-public (add-score parser score)
+(define-public (add-score score)
   (cond
-   ((ly:parser-lookup parser '$current-bookpart)
-    ((ly:parser-lookup parser 'bookpart-score-handler)
-     (ly:parser-lookup parser '$current-bookpart) score))
-   ((ly:parser-lookup parser '$current-book)
-    ((ly:parser-lookup parser 'book-score-handler)
-     (ly:parser-lookup parser '$current-book) score))
+   ((ly:parser-lookup '$current-bookpart)
+    ((ly:parser-lookup 'bookpart-score-handler)
+     (ly:parser-lookup '$current-bookpart) score))
+   ((ly:parser-lookup '$current-book)
+    ((ly:parser-lookup 'book-score-handler)
+     (ly:parser-lookup '$current-book) score))
    (else
-    ((ly:parser-lookup parser 'toplevel-score-handler) parser score))))
+    ((ly:parser-lookup 'toplevel-score-handler) score))))
 
 (define-public paper-variable
   (let
       ((get-papers
-        (lambda (parser book)
+        (lambda (book)
           (append (if (and book (ly:output-def? (ly:book-paper book)))
                       (list (ly:book-paper book))
                       '())
-                  (ly:parser-lookup parser '$papers)
-                  (list (ly:parser-lookup parser '$defaultpaper))))))
+                  (ly:parser-lookup '$papers)
+                  (list (ly:parser-lookup '$defaultpaper))))))
     (make-procedure-with-setter
-     (lambda (parser book symbol)
+     (lambda (book symbol)
        (any (lambda (p) (ly:output-def-lookup p symbol #f))
-            (get-papers parser book)))
-     (lambda (parser book symbol value)
+            (get-papers book)))
+     (lambda (book symbol value)
        (ly:output-def-set-variable!
-        (car (get-papers parser book))
+        (car (get-papers book))
         symbol value)))))
 
-(define-public (add-text parser text)
-  (add-score parser (list text)))
+(define-public (add-text text)
+  (add-score (list text)))
 
-(define-public (add-music parser music)
+(define-public (add-music music)
   (collect-music-aux (lambda (score)
-                       (add-score parser score))
-                     parser
+                       (add-score score))
                      music))
 
-(define-public (context-mod-from-music parser music)
+(define-public (context-mod-from-music music)
   (let ((warn #t) (mods (ly:make-context-mod)))
     (let loop ((m music))
       (if (music-is-of-type? m 'layout-instruction-event)
@@ -334,19 +334,23 @@ bookoutput function"
                          (set! warn #f)))))))))
     mods))
 
-(define-public (context-defs-from-music parser output-def music)
+(define-public (context-defs-from-music output-def music)
+  (define (checkmods mods)
+    (or mods
+        (begin
+          (ly:music-warning music (_ "Cannot determine contexts to modify"))
+          (ly:make-context-mod))))
   (let ((warn #t))
     (let loop ((m music) (mods #f))
       ;; The parser turns all sets, overrides etc into something
-      ;; wrapped in ContextSpeccedMusic.  If we ever get a set,
-      ;; override etc that is not wrapped in ContextSpeccedMusic, the
-      ;; user has created it in Scheme himself without providing the
-      ;; required wrapping.  In that case, using #f in the place of a
-      ;; context modification results in a reasonably recognizable
-      ;; error.
+      ;; wrapped in ContextSpeccedMusic which is how we determine the
+      ;; contexts to affect.  A set, override etc that is not wrapped
+      ;; in ContextSpeccedMusic is likely Scheme-generated and cannot
+      ;; really be assigned usefully.  `checkmods' reports this
+      ;; problem when it occurs.
       (if (music-is-of-type? m 'layout-instruction-event)
           (ly:add-context-mod
-           mods
+           (checkmods mods)
            (case (ly:music-property m 'name)
              ((PropertySet)
               (list 'assign
@@ -372,7 +376,7 @@ bookoutput function"
                        (ly:music-property m 'grob-property-path)))))))
           (case (ly:music-property m 'name)
             ((ApplyContext)
-             (ly:add-context-mod mods
+             (ly:add-context-mod (checkmods mods)
                                  (list 'apply
                                        (ly:music-property m 'procedure))))
             ((ContextSpeccedMusic)
@@ -707,20 +711,16 @@ right (@var{dir}=+1)."
 (define-public (coord-scale coordinate amount)
   (coord-operation * amount coordinate))
 
-(define-public (coord-rotate coordinate degrees-in-radians)
-  (let*
-      ((coordinate
-        (cons
-         (exact->inexact (coord-x coordinate))
-         (exact->inexact (coord-y coordinate))))
-       (radius
-        (sqrt
-         (+ (* (coord-x coordinate) (coord-x coordinate))
-            (* (coord-y coordinate) (coord-y coordinate)))))
-       (angle (angle-0-2pi (atan (coord-y coordinate) (coord-x coordinate)))))
-    (cons
-     (* radius (cos (+ angle degrees-in-radians)))
-     (* radius (sin (+ angle degrees-in-radians))))))
+(define-public (coord-rotate coordinate angle-in-radians)
+  (coord-rotated coordinate (/ angle-in-radians PI-OVER-180)))
+
+(define-public (coord-rotated coordinate direction)
+  ;; Same, in degrees or with a given direction
+  (let ((dir (ly:directed direction)))
+    (cons (- (* (car dir) (car coordinate))
+             (* (cdr dir) (cdr coordinate)))
+          (+ (* (car dir) (cdr coordinate))
+             (* (cdr dir) (car coordinate))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; trig
@@ -735,11 +735,11 @@ right (@var{dir}=+1)."
 
 (define-public (cyclic-base-value value cycle)
   "Take @var{value} and modulo-maps it between 0 and base @var{cycle}."
-  (if (< value 0)
-      (cyclic-base-value (+ value cycle) cycle)
-      (if (>= value cycle)
-          (cyclic-base-value (- value cycle) cycle)
-          value)))
+  (cond ((< value 0)
+         (cyclic-base-value (+ value cycle) cycle))
+        ((>= value cycle)
+         (cyclic-base-value (- value cycle) cycle))
+        (else value)))
 
 (define-public (angle-0-2pi angle)
   "Take @var{angle} (in radians) and maps it between 0 and 2pi."
@@ -766,14 +766,8 @@ right (@var{dir}=+1)."
 
 (define-public (polar->rectangular radius angle-in-degrees)
   "Return polar coordinates (@var{radius}, @var{angle-in-degrees})
-as rectangular coordinates @ode{(x-length . y-length)}."
-
-  (let ((complex (make-polar
-                  radius
-                  (degrees->radians angle-in-degrees))))
-    (cons
-     (real-part complex)
-     (imag-part complex))))
+as rectangular coordinates @code{(x-length . y-length)}."
+  (ly:directed angle-in-degrees radius))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; string
@@ -785,6 +779,12 @@ as rectangular coordinates @ode{(x-length . y-length)}."
 
 (define-public (string-startswith s prefix)
   (equal? prefix (substring s 0 (min (string-length s) (string-length prefix)))))
+
+(define-public (remove-whitespace strg)
+"Remove characters satisfying @code{char-whitespace?} from string @var{strg}"
+  (if (guile-v2)
+      (string-delete char-whitespace? strg)
+      (string-delete strg char-whitespace?)))
 
 (define-public (string-encode-integer i)
   (cond
@@ -825,12 +825,12 @@ Handy for debugging, possibly turned off."
 ;;  x)
 
 (define-public (stderr string . rest)
-  (apply format (cons (current-error-port) (cons string rest)))
+  (apply format (current-error-port) string rest)
   (force-output (current-error-port)))
 
 (define-public (debugf string . rest)
   (if #f
-      (apply stderr (cons string rest))))
+      (apply stderr string rest)))
 
 (define (index-cell cell dir)
   (if (equal? dir 1)
@@ -871,6 +871,49 @@ Handy for debugging, possibly turned off."
        (cons (substring str end-of-prev-match (string-length str)) matches)))
 
   (reverse matches))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; numbering styles
+
+(define-public (number-format number-type num . custom-format)
+  "Print NUM accordingly to the requested NUMBER-TYPE.
+Choices include @code{roman-lower} (by default),
+@code{roman-upper}, @code{arabic} and @code{custom}.
+In the latter case, CUSTOM-FORMAT must be supplied
+and will be applied to NUM."
+ (cond
+   ((equal? number-type 'roman-lower)
+    (fancy-format #f "~(~@r~)" num))
+   ((equal? number-type 'roman-upper)
+    (fancy-format #f "~@r" num))
+   ((equal? number-type 'arabic)
+    (fancy-format #f "~d" num))
+   ((equal? number-type 'custom)
+    (fancy-format #f (car custom-format) num))
+   (else (fancy-format #f "~(~@r~)" num))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; lilypond version
+
+(define (lexicographic-list-compare? op a b)
+  "Lexicographically compare two lists @var{a} and @var{b} using
+   the operator @var{op}. The types of the list elements have to
+   be comparable with @var{op}. If the lists are of different length
+   the trailing elements of the longer list are ignored."
+  (let* ((ca (car a))
+         (iseql (op ca ca)))
+    (let loop ((ca ca) (cb (car b)) (a (cdr a)) (b (cdr b)))
+      (let ((axb (op ca cb)))
+        (if (and (pair? a) (pair? b)
+                 (eq? axb iseql (op cb ca)))
+            (loop (car a) (car b) (cdr a) (cdr b))
+            axb)))))
+
+(define (ly:version? op ver)
+  "Using the operator @var{op} compare the currently executed LilyPond
+   version with a given version @var{ver} which is passed as a list of 
+   numbers."
+  (lexicographic-list-compare? op (ly:version) ver))
 
 ;;;;;;;;;;;;;;;;
 ;; other
@@ -927,23 +970,46 @@ print a warning and set an optional @var{default}."
            (object->string def))
           def))))
 
-;;
-;; don't confuse users with #<procedure .. > syntax.
-;;
+(define (self-evaluating? x)
+  (or (number? x) (string? x) (procedure? x) (boolean? x)))
+
+(define (ly-type? x)
+  (any (lambda (p) ((car p) x)) lilypond-exported-predicates))
+
+(define-public (pretty-printable? val)
+  (and (not (self-evaluating? val))
+       (not (symbol? val))
+       (not (hash-table? val))
+       (not (ly-type? val))))
+
 (define-public (scm->string val)
-  (if (and (procedure? val)
-           (symbol? (procedure-name val)))
-      (symbol->string (procedure-name val))
-      (string-append
-       (if (self-evaluating? val)
-           (if (string? val)
-               "\""
-               "")
-           "'")
-       (call-with-output-string (lambda (port) (display val port)))
-       (if (string? val)
-           "\""
-           ""))))
+  (let* ((quote-style (if (string? val)
+                        'double
+                        (if (or (null? val) ; (ly-type? '()) => #t
+                                (and (not (self-evaluating? val))
+                                     (not (vector? val))
+                                     (not (hash-table? val))
+                                     (not (ly-type? val))))
+                          'single
+                          'none)))
+         ; don't confuse users with #<procedure ...> syntax
+         (str (if (and (procedure? val)
+                       (symbol? (procedure-name val)))
+                (symbol->string (procedure-name val))
+                (call-with-output-string
+                  (if (pretty-printable? val)
+                    ; property values in PDF hit margin after 64 columns
+                    (lambda (port)
+                      (pretty-print val port #:width (case quote-style
+                                                       ((single) 63)
+                                                       (else 64))))
+                    (lambda (port) (display val port)))))))
+    (case quote-style
+      ((single) (string-append
+                  "'"
+                  (string-regexp-substitute "\n " "\n  " str)))
+      ((double) (string-append "\"" str "\""))
+      (else str))))
 
 (define-public (!= lst r)
   (not (= lst r)))
@@ -979,3 +1045,10 @@ print a warning and set an optional @var{default}."
    (ly:format "~a:1" input-file-name)
    (_ "no \\version statement found, please add~afor future compatibility")
    (format #f "\n\n\\version ~s\n\n" (lilypond-version))))
+
+(define-public (output-module? module)
+  "Returns @code{#t} if @var{module} belongs to an output module
+usually carrying context definitions (@code{\\midi} or
+@code{\\layout})."
+  (or (module-ref module 'is-midi #f)
+      (module-ref module 'is-layout #f)))

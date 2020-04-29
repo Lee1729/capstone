@@ -1,4 +1,4 @@
-/* Generated automatically from /home/gub/gub/target/mingw/src/python-2.4.5/Modules/config.c.in by makesetup. */
+/* Generated automatically from /home/gub/NewGub/gub/target/linux-64/src/python-2.4.5/Modules/config.c.in by makesetup. */
 /* -*- C -*- ***********************************************
 Copyright (c) 2000, BeOpen.com.
 Copyright (c) 1995-2000, Corporation for National Research Initiatives.
@@ -21,15 +21,14 @@ redistribution of this file, and for a DISCLAIMER OF ALL WARRANTIES.
 
 extern void initthread(void);
 extern void initsignal(void);
-extern void initnt(void);
+extern void initposix(void);
 extern void initerrno(void);
+extern void initpwd(void);
 extern void init_sre(void);
 extern void init_codecs(void);
 extern void initzipimport(void);
 extern void init_symtable(void);
 extern void initxxsubtype(void);
-extern void init_subprocess(void);
-extern void initmsvcrt(void);
 
 /* -- ADDMODULE MARKER 1 -- */
 
@@ -41,15 +40,14 @@ struct _inittab _PyImport_Inittab[] = {
 
 	{"thread", initthread},
 	{"signal", initsignal},
-	{"nt", initnt},
+	{"posix", initposix},
 	{"errno", initerrno},
+	{"pwd", initpwd},
 	{"_sre", init_sre},
 	{"_codecs", init_codecs},
 	{"zipimport", initzipimport},
 	{"_symtable", init_symtable},
 	{"xxsubtype", initxxsubtype},
-	{"_subprocess", init_subprocess},
-	{"msvcrt", initmsvcrt},
 
 /* -- ADDMODULE MARKER 2 -- */
 

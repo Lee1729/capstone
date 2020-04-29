@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 2004--2012 Han-Wen Nienhuys <hanwen@xs4all.nl>
+;;;; Copyright (C) 2004--2015 Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
 ;;;; it under the terms of the GNU General Public License as published by
@@ -39,10 +39,59 @@
   (display (span-state x) file)
   (display "\n" file))
 
+;; Return the duration of the longest event in the Voice-state.
+(define-method (duration (vs <Voice-state>))
+  (define (duration-max event d1)
+    (let ((d2 (ly:event-property event 'duration #f)))
+      (if d2
+          (if (ly:duration<? d1 d2) d2 d1)
+          d1)))
+
+  (fold duration-max (ly:make-duration 0 0 0) (events vs)))
+
+;; Return the moment that the longest event in the Voice-state ends.
+(define-method (end-moment (vs <Voice-state>))
+  (ly:moment-add (moment vs) (ly:duration-length (duration vs))))
+
 (define-method (note-events (vs <Voice-state>))
   (define (f? x)
     (ly:in-event-class? x 'note-event))
   (filter f? (events vs)))
+
+; Return a list of note events which is sorted and stripped of
+; properties that we do not want to prevent combining parts.
+(define-method (comparable-note-events (vs <Voice-state>))
+  (define (note<? note1 note2)
+    (let ((p1 (ly:event-property note1 'pitch))
+          (p2 (ly:event-property note2 'pitch)))
+      (cond ((ly:pitch<? p1 p2) #t)
+            ((ly:pitch<? p2 p1) #f)
+            (else (ly:duration<? (ly:event-property note1 'duration)
+                                 (ly:event-property note2 'duration))))))
+  ;; TODO we probably should compare articulations too
+  (sort (map (lambda (x)
+               (ly:make-stream-event
+                (ly:make-event-class 'note-event)
+                (list (cons 'duration (ly:event-property x 'duration))
+                      (cons 'pitch (ly:event-property x 'pitch)))))
+             (note-events vs))
+        note<?))
+
+(define-method (rest-or-skip-events (vs <Voice-state>))
+  (define (filtered-events event-class)
+    (filter (lambda(x) (ly:in-event-class? x event-class))
+            (events vs)))
+  (let ((result (filtered-events 'rest-event)))
+    ;; There may be skips in the same part with rests for various
+    ;; reasons.  Regard the skips only if there are no rests.
+    (if (and (not (pair? result)) (not (any-mmrest-events vs)))
+        (set! result (filtered-events 'skip-event)))
+  result))
+
+(define-method (any-mmrest-events (vs <Voice-state>))
+  (define (f? x)
+    (ly:in-event-class? x 'multi-measure-rest-event))
+  (any f? (events vs)))
 
 (define-method (previous-voice-state (vs <Voice-state>))
   (let ((i (slot-ref vs 'vector-index))
@@ -73,6 +122,19 @@
       (display " synced "))
   (display "\n" f))
 
+(define-method (current-or-previous-voice-states (ss <Split-state>))
+  "Return voice states meeting the following conditions.  For a voice
+in sync, return the current voice state.  For a voice out of sync,
+return the previous voice state."
+  (let* ((vss (voice-states ss))
+         (vs1 (car vss))
+         (vs2 (cdr vss)))
+    (if (and vs1 (not (equal? (moment vs1) (moment ss))))
+        (set! vs1 (previous-voice-state vs1)))
+    (if (and vs2 (not (equal? (moment vs2) (moment ss))))
+        (set! vs2 (previous-voice-state vs2)))
+    (cons vs1 vs2)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 
@@ -81,16 +143,32 @@
     (if p (span-state p) '())))
 
 (define (make-voice-states evl)
-  (let ((vec (list->vector (map (lambda (v)
-                                  (make <Voice-state>
-                                    #:moment (caar v)
-                                    #:tuning (cdar v)
-                                    #:events (map car (cdr v))))
-                                evl))))
-    (do ((i 0 (1+ i)))
-        ((= i (vector-length vec)) vec)
-      (slot-set! (vector-ref vec i) 'vector-index i)
-      (slot-set! (vector-ref vec i) 'state-vector vec))))
+  (let* ((states (map (lambda (v)
+                        (make <Voice-state>
+                          #:moment (caar v)
+                          #:tuning (cdar v)
+                          #:events (map car (cdr v))))
+                      (reverse evl))))
+
+    ;; add an entry with no events at the moment the last event ends
+    (if (pair? states)
+        (let ((last-real-event (car states)))
+          (set! states
+                (cons (make <Voice-state>
+                        #:moment (end-moment last-real-event)
+                        #:tuning (tuning last-real-event)
+                        #:events '())
+                      states))))
+
+    ;; TODO: Add an entry at +inf.0 and see if it allows us to remove
+    ;; the many instances of conditional code handling the case that
+    ;; there is no voice state at a given moment.
+
+    (let ((vec (list->vector (reverse! states))))
+      (do ((i 0 (1+ i)))
+          ((= i (vector-length vec)) vec)
+        (slot-set! (vector-ref vec i) 'vector-index i)
+        (slot-set! (vector-ref vec i) 'state-vector vec)))))
 
 (define (make-split-state vs1 vs2)
   "Merge lists VS1 and VS2, containing Voice-state objects into vector
@@ -201,7 +279,8 @@ Voice-state objects
 (define recording-group-functions
   ;;Selected parts from @var{toplevel-music-functions} not requiring @code{parser}.
   (list
-   (lambda (music) (expand-repeat-chords! '(rhythmic-event) music))))
+   (lambda (music) (expand-repeat-chords! '(rhythmic-event) music))
+   expand-repeat-notes!))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -213,36 +292,34 @@ LilyPond version 2.8 and earlier."
       ((context-list '())
        (now-mom (ly:make-moment 0 0))
        (global (ly:make-global-context odef))
-       (mom-listener (ly:make-listener
-                      (lambda (tev) (set! now-mom (ly:event-property tev 'moment)))))
+       (mom-listener (lambda (tev) (set! now-mom (ly:event-property tev 'moment))))
        (new-context-listener
-        (ly:make-listener
-         (lambda (sev)
-           (let*
-               ((child (ly:event-property sev 'context))
-                (this-moment-list (cons (ly:context-id child) '()))
-                (dummy (set! context-list (cons this-moment-list context-list)))
-                (acc '())
-                (accumulate-event-listener
-                 (ly:make-listener (lambda (ev)
-                                     (set! acc (cons (cons ev #t) acc)))))
-                (save-acc-listener
-                 (ly:make-listener (lambda (tev)
-                                     (if (pair? acc)
-                                         (let ((this-moment
-                                                (cons (cons now-mom
-                                                            (ly:context-property child 'instrumentTransposition))
-                                                      ;; The accumulate-event-listener above creates
-                                                      ;; the list of events in reverse order, so we
-                                                      ;; have to revert it to the original order again
-                                                      (reverse acc))))
-                                           (set-cdr! this-moment-list
-                                                     (cons this-moment (cdr this-moment-list)))
-                                           (set! acc '())))))))
-             (ly:add-listener accumulate-event-listener
-                              (ly:context-event-source child) 'StreamEvent)
-             (ly:add-listener save-acc-listener
-                              (ly:context-event-source global) 'OneTimeStep))))))
+        (lambda (sev)
+          (let*
+              ((child (ly:event-property sev 'context))
+               (this-moment-list (cons (ly:context-id child) '()))
+               (dummy (set! context-list (cons this-moment-list context-list)))
+               (acc '())
+               (accumulate-event-listener
+                (lambda (ev)
+                  (set! acc (cons (cons ev #t) acc))))
+               (save-acc-listener
+                (lambda (tev)
+                  (if (pair? acc)
+                      (let ((this-moment
+                             (cons (cons now-mom
+                                         (ly:context-property child 'instrumentTransposition))
+                                   ;; The accumulate-event-listener above creates
+                                   ;; the list of events in reverse order, so we
+                                   ;; have to revert it to the original order again
+                                   (reverse acc))))
+                        (set-cdr! this-moment-list
+                                  (cons this-moment (cdr this-moment-list)))
+                        (set! acc '()))))))
+            (ly:add-listener accumulate-event-listener
+                             (ly:context-event-source child) 'StreamEvent)
+            (ly:add-listener save-acc-listener
+                             (ly:context-event-source global) 'OneTimeStep)))))
     (ly:add-listener new-context-listener
                      (ly:context-events-below global) 'AnnounceNewContext)
     (ly:add-listener mom-listener (ly:context-event-source global) 'Prepare)
@@ -252,30 +329,14 @@ LilyPond version 2.8 and earlier."
      global)
     context-list))
 
-(define-public (make-part-combine-music parser music-list direction)
-  (let* ((m (make-music 'PartCombineMusic))
-         (m1 (make-non-relative-music (context-spec-music (first music-list) 'Voice "one")))
-         (m2  (make-non-relative-music  (context-spec-music (second music-list) 'Voice "two")))
-         (listener (ly:parser-lookup parser 'partCombineListener))
-         (evs2 (recording-group-emulate m2 listener))
-         (evs1 (recording-group-emulate m1 listener)))
-
-    (set! (ly:music-property m 'elements) (list m1 m2))
-    (set! (ly:music-property m 'direction) direction)
-    (set! (ly:music-property m 'split-list)
-          (if (and (assoc "one" evs1) (assoc "two" evs2))
-              (determine-split-list (reverse! (assoc-get "one" evs1) '())
-                                    (reverse! (assoc-get "two" evs2) '()))
-              '()))
-    m))
-
-(define-public (determine-split-list evl1 evl2)
-  "@var{evl1} and @var{evl2} should be ascending."
+(define-public (determine-split-list evl1 evl2 chord-range)
+  "@var{evl1} and @var{evl2} should be ascending. @var{chord-range} is a pair of numbers (min . max) defining the distance in steps between notes that may be combined into a chord or unison."
   (let* ((pc-debug #f)
-         (chord-threshold 8)
          (voice-state-vec1 (make-voice-states evl1))
          (voice-state-vec2 (make-voice-states evl2))
-         (result (make-split-state voice-state-vec1 voice-state-vec2)))
+         (result (make-split-state voice-state-vec1 voice-state-vec2))
+         (chord-min-diff (car chord-range))
+         (chord-max-diff (cdr chord-range)))
 
     ;; Go through all moments recursively and check if the events of that
     ;; moment contain a part-combine-force-event override. If so, store its
@@ -284,9 +345,16 @@ LilyPond version 2.8 and earlier."
     (define (analyse-forced-combine result-idx prev-res)
 
       (define (get-forced-event x)
-        (and (ly:in-event-class? x 'part-combine-force-event)
-             (cons (ly:event-property x 'forced-type)
-                   (ly:event-property x 'once))))
+        (cond
+         ((and (ly:in-event-class? x 'SetProperty)
+               (eq? (ly:event-property x 'symbol) 'partCombineForced))
+          (cons (ly:event-property x 'value #f)
+                (ly:event-property x 'once #f)))
+         ((and (ly:in-event-class? x 'UnsetProperty)
+               (eq? (ly:event-property x 'symbol) 'partCombineForced))
+          (cons #f (ly:event-property x 'once #f)))
+         (else #f)))
+
       (define (part-combine-events vs)
         (if (not vs)
             '()
@@ -310,9 +378,11 @@ LilyPond version 2.8 and earlier."
       (if (< result-idx (vector-length result))
           (let* ((now-state (vector-ref result result-idx)) ; current result
                  ;; Extract all part-combine force events
-                 (ev1 (part-combine-events (car (voice-states now-state))))
-                 (ev2 (part-combine-events (cdr (voice-states now-state))))
-                 (evts (append ev1 ev2))
+                 (evts (if (synced? now-state)
+                           (append
+                            (part-combine-events (car (voice-states now-state)))
+                            (part-combine-events (cdr (voice-states now-state))))
+                           '()))
                  ;; result is (once-state permament-state):
                  (state (fold forced-result (cons 'automatic prev-res) evts))
                  ;; Now let once override permanent changes:
@@ -352,51 +422,49 @@ Only set if not set previously.
       (define (analyse-notes now-state)
         (let* ((vs1 (car (voice-states now-state)))
                (vs2 (cdr (voice-states now-state)))
-               (notes1 (note-events vs1))
-               (durs1 (sort (map (lambda (x) (ly:event-property x 'duration))
-                                 notes1)
-                            ly:duration<?))
-               (pitches1 (sort (map (lambda (x) (ly:event-property x 'pitch))
-                                    notes1)
-                               ly:pitch<?))
-               (notes2 (note-events vs2))
-               (durs2 (sort (map (lambda (x) (ly:event-property x 'duration))
-                                 notes2)
-                            ly:duration<?))
-               (pitches2 (sort (map (lambda (x) (ly:event-property x 'pitch))
-                                    notes2)
-                               ly:pitch<?)))
-          (cond ((> (length notes1) 1) (put 'apart))
-                ((> (length notes2) 1) (put 'apart))
-                ((= 1 (+ (length notes2) (length notes1))) (put 'apart))
-                ((and (= (length durs1) 1)
-                      (= (length durs2) 1)
-                      (not (equal? (car durs1) (car durs2))))
-                 (put 'apart))
-                (else
-                 (if (and (= (length pitches1) (length pitches2)))
-                     (if (and (pair? pitches1)
-                              (pair? pitches2)
-                              (or
-                               (< chord-threshold (ly:pitch-steps
-                                                   (ly:pitch-diff (car pitches1)
-                                                                  (car pitches2))))
+               (notes1 (comparable-note-events vs1))
+               (notes2 (comparable-note-events vs2)))
+          (cond
+           ;; if neither part has notes, do nothing
+           ((and (not (pair? notes1)) (not (pair? notes2))))
 
-                               ;; voice crossings:
-                               (> 0 (ly:pitch-steps (ly:pitch-diff (car pitches1)
-                                                                   (car pitches2))))
-                               ))
-                         (put 'apart)
-                         ;; copy previous split state from spanner state
-                         (begin
-                           (if (previous-voice-state vs1)
-                               (copy-state-from voice-state-vec1
-                                                (previous-voice-state vs1)))
-                           (if (previous-voice-state vs2)
-                               (copy-state-from voice-state-vec2
-                                                (previous-voice-state vs2)))
-                           (if (and (null? (span-state vs1)) (null? (span-state vs2)))
-                               (put 'chords)))))))))
+           ;; if one part has notes and the other does not
+           ((or (not (pair? notes1)) (not (pair? notes2))) (put 'apart))
+
+           ;; if either part has a chord
+           ((or (> (length notes1) 1) 
+                (> (length notes2) 1))
+            (if (and (<= chord-min-diff 0) ; user requests combined unisons
+                     (equal? notes1 notes2)) ; both parts have the same chord
+                (put 'chords)
+                (put 'apart)))
+
+           ;; if the durations are different
+           ;; TODO articulations too?
+           ((and (not (equal? (ly:event-property (car notes1) 'duration)
+                              (ly:event-property (car notes2) 'duration))))
+            (put 'apart))
+
+           (else
+            ;; Is the interval outside of chord-range?
+            (if (let ((diff (ly:pitch-steps
+                             (ly:pitch-diff 
+                              (ly:event-property (car notes1) 'pitch)
+                              (ly:event-property (car notes2) 'pitch)))))
+                  (or (< diff chord-min-diff)
+                      (> diff chord-max-diff)
+                      ))
+                (put 'apart)
+                ;; copy previous split state from spanner state
+                (begin
+                  (if (previous-voice-state vs1)
+                      (copy-state-from voice-state-vec1
+                                       (previous-voice-state vs1)))
+                  (if (previous-voice-state vs2)
+                      (copy-state-from voice-state-vec2
+                                       (previous-voice-state vs2)))
+                  (if (and (null? (span-state vs1)) (null? (span-state vs2)))
+                      (put 'chords))))))))
 
       (if (< result-idx (vector-length result))
           (let* ((now-state (vector-ref result result-idx))
@@ -431,18 +499,78 @@ Only set if not set previously.
           (let* ((now-state (vector-ref result result-idx))
                  (vs1 (car (voice-states now-state)))
                  (vs2 (cdr (voice-states now-state))))
-            (if (and (equal? (configuration now-state) 'chords)
-                     vs1 vs2)
-                (let ((notes1 (note-events vs1))
-                      (notes2 (note-events vs2)))
-                  (cond ((and (= 1 (length notes1))
-                              (= 1 (length notes2))
-                              (equal? (ly:event-property (car notes1) 'pitch)
-                                      (ly:event-property (car notes2) 'pitch)))
+
+            (define (analyse-synced-silence)
+              (let ((rests1 (if vs1 (rest-or-skip-events vs1) '()))
+                    (rests2 (if vs2 (rest-or-skip-events vs2) '())))
+                (cond
+
+                 ;; multi-measure rests (probably), which the
+                 ;; part-combine iterator handles well
+                 ((and (= 0 (length rests1))
+                       (= 0 (length rests2)))
+                  (set! (configuration now-state) 'unisilence))
+
+                 ;; equal rests or equal skips, but not one of each
+                 ((and (= 1 (length rests1))
+                       (= 1 (length rests2))
+                       (equal? (ly:event-property (car rests1) 'class)
+                               (ly:event-property (car rests2) 'class))
+                       (equal? (ly:event-property (car rests1) 'duration)
+                               (ly:event-property (car rests2) 'duration)))
+                  (set! (configuration now-state) 'unisilence))
+
+                 ;; rests of different durations or mixed with
+                 ;; skips or multi-measure rests
+                 (else
+                  ;; TODO For skips, route the rest to the shared
+                  ;; voice and the skip to the voice for its part?
+                  (set! (configuration now-state) 'apart-silence))
+
+                 )))
+
+            (define (analyse-unsynced-silence vs1 vs2)
+              (let ((any-mmrests1 (if vs1 (any-mmrest-events vs1) #f))
+                    (any-mmrests2 (if vs2 (any-mmrest-events vs2) #f)))
+                (cond
+                 ;; If a multi-measure rest begins now while the other
+                 ;; part has an ongoing multi-measure rest (or has
+                 ;; ended), start displaying the one that begins now.
+                 ((and any-mmrests1
+                       (equal? (moment vs1) (moment now-state))
+                       (or (not vs2) any-mmrests2))
+                  (set! (configuration now-state) 'silence1))
+
+                 ;; as above with parts swapped
+                 ((and any-mmrests2
+                       (equal? (moment vs2) (moment now-state))
+                       (or (not vs1) any-mmrests1))
+                  (set! (configuration now-state) 'silence2))
+                 )))
+
+            (if (or vs1 vs2)
+                (let ((notes1 (if vs1 (comparable-note-events vs1) '()))
+                      (notes2 (if vs2 (comparable-note-events vs2) '())))
+                  (cond ((and (equal? (configuration now-state) 'chords)
+                              (pair? notes1)
+                              (equal? notes1 notes2))
                          (set! (configuration now-state) 'unisono))
-                        ((and (= 0 (length notes1))
-                              (= 0 (length notes2)))
-                         (set! (configuration now-state) 'unisilence)))))
+
+                        ((synced? now-state)
+                         (if (and (= 0 (length notes1))
+                                  (= 0 (length notes2)))
+                             (analyse-synced-silence)))
+
+                        (else ;; not synchronized
+                         (let* ((vss
+                                 (current-or-previous-voice-states now-state))
+                                (vs1 (car vss))
+                                (vs2 (cdr vss)))
+                           (if (and
+                                (or (not vs1) (= 0 (length (note-events vs1))))
+                                (or (not vs2) (= 0 (length (note-events vs2)))))
+                               (analyse-unsynced-silence vs1 vs2))))
+                        )))
             (analyse-a2 (1+ result-idx)))))
 
     (define (analyse-solo12 result-idx)
@@ -507,7 +635,50 @@ the mark when there are no spanners active.
             ;; try-solo
             start-idx))
 
-      (define (analyse-moment result-idx)
+      (define (analyse-apart-silence result-idx)
+        "Analyse 'apart-silence starting at RESULT-IDX.  Return next index."
+        (let* ((now-state (vector-ref result result-idx))
+               (vs1 (current-voice-state now-state 1))
+               (vs2 (current-voice-state now-state 2))
+               (rests1 (if vs1 (rest-or-skip-events vs1) '()))
+               (rests2 (if vs2 (rest-or-skip-events vs2) '()))
+               (prev-state (if (> result-idx 0)
+                               (vector-ref result (- result-idx 1))
+                               #f))
+               (prev-config (if prev-state
+                                (configuration prev-state)
+                                'apart-silence)))
+          (cond
+           ;; rest with multi-measure rest: choose the rest
+           ((and (synced? now-state)
+                 (= 1 (length rests1))
+                 (ly:in-event-class? (car rests1) 'rest-event)
+                 (= 0 (length rests2))) ; probably mmrest
+            (put 'silence1))
+
+           ;; as above with parts swapped
+           ((and (synced? now-state)
+                 (= 1 (length rests2))
+                 (ly:in-event-class? (car rests2) 'rest-event)
+                 (= 0 (length rests1))) ; probably mmrest
+            (put 'silence2))
+
+           ((synced? now-state)
+            (put 'apart-silence))
+
+           ;; remain in the silence1/2 states until resync
+           ((equal? prev-config 'silence1)
+            (put 'silence1))
+
+           ((equal? prev-config 'silence2)
+            (put 'silence2))
+
+           (else
+            (put 'apart-silence)))
+
+          (1+ result-idx)))
+
+      (define (analyse-apart result-idx)
         "Analyse 'apart starting at RESULT-IDX.  Return next index."
         (let* ((now-state (vector-ref result result-idx))
                (vs1 (current-voice-state now-state 1))
@@ -522,8 +693,10 @@ the mark when there are no spanners active.
           (max
            ;; we should always increase.
            (cond ((and (= n1 0) (= n2 0))
-                  (put 'apart-silence)
-                  (1+ result-idx))
+                  ;; If we hit this, it means that the previous passes
+                  ;; have designated as 'apart what is really
+                  ;; 'apart-silence.
+                  (analyse-apart-silence result-idx))
                  ((and (= n2 0)
                        (equal? (moment vs1) (moment now-state))
                        (null? (previous-span-state vs1)))
@@ -538,9 +711,14 @@ the mark when there are no spanners active.
            (1+ result-idx))))
 
       (if (< result-idx (vector-length result))
-          (if (equal? (configuration (vector-ref result result-idx)) 'apart)
-              (analyse-solo12 (analyse-moment result-idx))
-              (analyse-solo12 (1+ result-idx))))) ; analyse-solo12
+          (let ((conf (configuration (vector-ref result result-idx))))
+            (cond
+             ((equal? conf 'apart)
+              (analyse-solo12 (analyse-apart result-idx)))
+             ((equal? conf 'apart-silence)
+              (analyse-solo12 (analyse-apart-silence result-idx)))
+             (else
+              (analyse-solo12 (1+ result-idx))))))) ; analyse-solo12
 
     (analyse-spanner-states voice-state-vec1)
     (analyse-spanner-states voice-state-vec2)
@@ -576,16 +754,162 @@ the mark when there are no spanners active.
         (display result))
     result))
 
+(define-public default-part-combine-mark-state-machine
+  ;; (current-state . ((split-state-event .
+  ;;                      (output-voice output-event next-state)) ...))
+  '((Initial . ((solo1   . (solo   SoloOneEvent Solo1))
+                (solo2   . (solo   SoloTwoEvent Solo2))
+                (unisono . (shared UnisonoEvent Unisono))))
+    (Solo1   . ((apart   . (#f     #f           Initial))
+                (chords  . (#f     #f           Initial))
+                (solo2   . (solo   SoloTwoEvent Solo2))
+                (unisono . (shared UnisonoEvent Unisono))))
+    (Solo2   . ((apart   . (#f     #f           Initial))
+                (chords  . (#f     #f           Initial))
+                (solo1   . (solo   SoloOneEvent Solo1))
+                (unisono . (shared UnisonoEvent Unisono))))
+    (Unisono . ((apart   . (#f     #f           Initial))
+                (chords  . (#f     #f           Initial))
+                (solo1   . (solo   SoloOneEvent Solo1))
+                (solo2   . (solo   SoloTwoEvent Solo2))))))
+
+(define-public (make-part-combine-marks state-machine split-list)
+  "Generate a sequence of part combiner events from a split list"
+
+  (define (get-state state-name)
+    (assq-ref state-machine state-name))
+
+  (let ((full-seq '()) ; sequence of { \context Voice = "x" {} ... }
+        (segment '()) ; sequence within \context Voice = "x" {...}
+        (prev-moment ZERO-MOMENT)
+        (prev-voice #f)
+        (state (get-state 'Initial)))
+
+    (define (commit-segment)
+      "Add the current segment to the full sequence and begin another."
+      (if (pair? segment)
+          (set! full-seq
+                (cons (make-music 'ContextSpeccedMusic
+                                  'context-id (symbol->string prev-voice)
+                                  'context-type 'Voice
+                                  'element (make-sequential-music (reverse! segment)))
+                      full-seq)))
+      (set! segment '()))
+
+    (define (handle-split split)
+      (let* ((moment (car split))
+             (action (assq-ref state (cdr split))))
+        (if action
+            (let ((voice (car action))
+                  (part-combine-event (cadr action))
+                  (next-state-name (caddr action)))
+              (if part-combine-event
+                  (let ((dur (ly:moment-sub moment prev-moment)))
+                    ;; start a new segment when the voice changes
+                    (if (not (eq? voice prev-voice))
+                        (begin
+                          (commit-segment)
+                          (set! prev-voice voice)))
+                    (if (not (equal? dur ZERO-MOMENT))
+                        (set! segment (cons (make-music 'SkipEvent
+                                                          'duration (make-duration-of-length dur)) segment)))
+                    (set! segment (cons (make-music part-combine-event) segment))
+
+                    (set! prev-moment moment)))
+              (set! state (get-state next-state-name))))))
+
+    (for-each handle-split split-list)
+    (commit-segment)
+    (make-sequential-music (reverse! full-seq))))
+
+(define-public default-part-combine-context-change-state-machine-one
+  ;; (current-state . ((split-state-event . (output-voice next-state)) ...))
+  '((Initial . ((apart         . (one    . Initial))
+                (apart-silence . (one    . Initial))
+                (apart-spanner . (one    . Initial))
+                (chords        . (shared . Initial))
+                (silence1      . (shared . Initial))
+                (silence2      . (null   . Demoted))
+                (solo1         . (solo   . Initial))
+                (solo2         . (null   . Demoted))
+                (unisono       . (shared . Initial))
+                (unisilence    . (shared . Initial))))
+
+    ;; After a part has been used as the exclusive input for a
+    ;; passage, we want to use it by default for unisono/unisilence
+    ;; passages because Part_combine_iterator might have killed
+    ;; multi-measure rests in the other part.  Here we call such a
+    ;; part "promoted".  Part one begins promoted.
+    (Demoted . ((apart         . (one    . Demoted))
+                (apart-silence . (one    . Demoted))
+                (apart-spanner . (one    . Demoted))
+                (chords        . (shared . Demoted))
+                (silence1      . (shared . Initial))
+                (silence2      . (null   . Demoted))
+                (solo1         . (solo   . Initial))
+                (solo2         . (null   . Demoted))
+                (unisono       . (null   . Demoted))
+                (unisilence    . (null   . Demoted))))))
+
+(define-public default-part-combine-context-change-state-machine-two
+  ;; (current-state . ((split-state-event . (output-voice next-state)) ...))
+  '((Initial . ((apart         . (two    . Initial))
+                (apart-silence . (two    . Initial))
+                (apart-spanner . (two    . Initial))
+                (chords        . (shared . Initial))
+                (silence1      . (null   . Initial))
+                (silence2      . (shared . Promoted))
+                (solo1         . (null   . Initial))
+                (solo2         . (solo   . Promoted))
+                (unisono       . (null   . Initial))
+                (unisilence    . (null   . Initial))))
+
+    ;; See the part-one state machine for the meaning of "promoted".
+    (Promoted . ((apart         . (two    . Promoted))
+                 (apart-silence . (two    . Promoted))
+                 (apart-spanner . (two    . Promoted))
+                 (chords        . (shared . Promoted))
+                 (silence1      . (null   . Initial))
+                 (silence2      . (shared . Promoted))
+                 (solo1         . (null   . Initial))
+                 (solo2         . (solo   . Promoted))
+                 (unisono       . (shared . Promoted))
+                 (unisilence    . (shared . Promoted))))))
+
+(define-public (make-part-combine-context-changes state-machine split-list)
+  "Generate a sequence of part combiner context changes from a split list"
+
+  (define (get-state state-name)
+    (assq-ref state-machine state-name))
+
+  (let ((change-list '())
+        (prev-voice #f)
+        (state (get-state 'Initial)))
+
+    (define (handle-split split)
+      (let* ((moment (car split))
+             (action (assq-ref state (cdr split))))
+        (if action
+            (let ((voice (car action))
+                  (next-state-name (cdr action)))
+              (if (not (eq? voice prev-voice))
+                  (begin
+                    (set! change-list (cons (cons moment voice) change-list))
+                    (set! prev-voice voice)))
+              (set! state (get-state next-state-name))))))
+
+    (for-each handle-split split-list)
+    (reverse! change-list)))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(define-public (add-quotable parser name mus)
+(define-public (add-quotable name mus)
   (let* ((tab (eval 'musicQuotes (current-module)))
          (voicename (get-next-unique-voice-name))
          ;; recording-group-emulate returns an assoc list (reversed!), so
          ;; hand it a proper unique context name and extract that key:
          (ctx-spec (context-spec-music mus 'Voice voicename))
-         (listener (ly:parser-lookup parser 'partCombineListener))
+         (listener (ly:parser-lookup 'partCombineListener))
          (context-list (reverse (recording-group-emulate ctx-spec listener)))
          (raw-voice (assoc voicename context-list))
          (quote-contents (if (pair? raw-voice) (cdr raw-voice) '())))

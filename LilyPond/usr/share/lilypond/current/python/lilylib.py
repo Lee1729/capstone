@@ -1,6 +1,6 @@
 # This file is part of LilyPond, the GNU music typesetter.
 #
-# Copyright (C) 1998--2012 Han-Wen Nienhuys <hanwen@xs4all.nl>
+# Copyright (C) 1998--2015 Han-Wen Nienhuys <hanwen@xs4all.nl>
 #                Jan Nieuwenhuizen <janneke@gnu.org>
 #
 # LilyPond is free software: you can redistribute it and/or modify
@@ -68,7 +68,7 @@ def display_encode (s):
     return s.encode (sys.stderr.encoding or 'utf-8', 'replace')
 
 # Lilylib globals.
-program_version = '2.18.2'
+program_version = '2.20.0'
 program_name = os.path.basename (sys.argv[0])
 
 

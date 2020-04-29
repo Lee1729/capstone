@@ -19,23 +19,23 @@
 #
 # See also the section "Build instructions" in the README file.
 
-DELIM=;
+DELIM=:
 
 # === Variables set by makesetup ===
 
-MODOBJS=          Modules/threadmodule.o  Modules/signalmodule.o  Modules/posixmodule.o  Modules/errnomodule.o  Modules/_sre.o  Modules/_codecsmodule.o  Modules/zipimport.o  Modules/symtablemodule.o  Modules/xxsubtype.o  Modules/_subprocess.o  Modules/msvcrtmodule.o
+MODOBJS=          Modules/threadmodule.o  Modules/signalmodule.o  Modules/posixmodule.o  Modules/errnomodule.o  Modules/pwdmodule.o  Modules/_sre.o  Modules/_codecsmodule.o  Modules/zipimport.o  Modules/symtablemodule.o  Modules/xxsubtype.o
 MODLIBS=        $(LOCALMODLIBS) $(BASEMODLIBS)
 
 # === Variables set by configure
 VERSION=	2.4
-srcdir=		/home/gub/gub/target/mingw/src/python-2.4.5
-VPATH=		/home/gub/gub/target/mingw/src/python-2.4.5
+srcdir=		/home/gub/NewGub/gub/target/linux-64/src/python-2.4.5
+VPATH=		/home/gub/NewGub/gub/target/linux-64/src/python-2.4.5
 
-CC=		i686-mingw32-gcc -DMS_WINDOWS -DPy_WIN_WIDE_FILENAMES -I/home/gub/gub/target/mingw/root/usr/include -I$(shell pwd)
-CXX=		i686-mingw32-g++ -DMS_WINDOWS -DPy_WIN_WIDE_FILENAMES -I/home/gub/gub/target/mingw/root/usr/include
+CC=		x86_64-linux-gcc  -I$(shell pwd)
+CXX=		x86_64-linux-g++ 
 LINKCC=		$(PURIFY) $(CXX)
-AR=		i686-mingw32-ar
-RANLIB=		i686-mingw32-ranlib
+AR=		x86_64-linux-ar
+RANLIB=		x86_64-linux-ranlib
 
 # Shell used by make (some versions default to the login shell, which is bad)
 SHELL=		/bin/sh
@@ -60,11 +60,11 @@ OPT=		-DNDEBUG -g -O3 -Wall -Wstrict-prototypes
 BASECFLAGS=	
 CFLAGS=		$(BASECFLAGS) $(OPT)
 CPPFLAGS=	-I. -I$(srcdir)/Include
-LDFLAGS=	-L/home/gub/gub/target/mingw/root/usr/lib -L/home/gub/gub/target/mingw/root/usr/bin -L/home/gub/gub/target/mingw/root/usr/lib/w32api
+LDFLAGS=	
 LDLAST=		
 SGI_ABI=	
-CCSHARED=	
-LINKFORSHARED=	
+CCSHARED=	-fPIC
+LINKFORSHARED=	-Xlinker -export-dynamic
 # Extra C flags added for building the interpreter object files.
 CFLAGSFORSHARED=$(CCSHARED)
 # C flags used for building the interpreter object files
@@ -77,12 +77,12 @@ EXEEXT_FOR_BUILD=
 O_FOR_BUILD=	x
 
 CFLAGS_FOR_BUILD=	
-CPPFLAGS_FOR_BUILD=	-I/home/gub/gub/target/tools/root/usr/include/python2.4 -I$(srcdir)/Include
+CPPFLAGS_FOR_BUILD=	-I/home/gub/NewGub/gub/target/tools/root/usr/include/python2.4 -I$(srcdir)/Include
 LDFLAGS_FOR_BUILD=	
 LIBS_FOR_BUILD=	
 
 # Machine-dependent subdirectories
-MACHDEP=	mingw32
+MACHDEP=	linux
 
 # Install prefix for architecture-independent files
 prefix=		/usr
@@ -106,14 +106,14 @@ CONFINCLUDEPY=	$(CONFINCLUDEDIR)/python$(VERSION)
 LIBP=		$(LIBDIR)/python$(VERSION)
 
 # Symbols used for using shared libraries
-SO=		.dll
-LDSHARED=	$(CC) -mdll
-BLDSHARED=	$(CC) -mdll libpython$(VERSION).dll
+SO=		.so
+LDSHARED=	$(CC) -shared
+BLDSHARED=	$(CC) -shared
 DESTSHARED=	$(BINLIBDEST)/lib-dynload
 
 # Executable suffix (.exe on Windows and Mac OS X)
-EXE=		.exe
-BUILDEXE=	.exe
+EXE=		
+BUILDEXE=	
 
 # Short name and location for Mac OS X Python framework
 UNIVERSALSDK=
@@ -131,7 +131,7 @@ MACOSX_DEPLOYMENT_TARGET=
 OTHER_LIBTOOL_OPT=
 
 # Environment to run shared python without installed libraries
-RUNSHARED=       CROSS_TARGET=mingw32 SRCDIR=/home/gub/gub/target/mingw/src/python-2.4.5 SO=.dll
+RUNSHARED=       CROSS_TARGET=linux SRCDIR=/home/gub/NewGub/gub/target/linux-64/src/python-2.4.5 SO=.so
 
 # Modes for directories, executables and data files created by the
 # install process.  Default to user-only-writable for all file types.
@@ -140,7 +140,7 @@ EXEMODE=	755
 FILEMODE=	644
 
 # configure script arguments
-CONFIG_ARGS=	 '--cache-file=config.cache' '--enable-shared' '--disable-static' '--disable-silent-rules' '--build=i686-linux' '--host=i686-mingw32' '--target=i686-mingw32' '--prefix=/usr' '--sysconfdir=/usr/etc' '--includedir=/usr/include' '--infodir=/usr/share/info' '--mandir=/usr/share/man' '--libdir=/usr/lib' 'build_alias=i686-linux' 'host_alias=i686-mingw32' 'target_alias=i686-mingw32' 'CC=i686-mingw32-gcc -DMS_WINDOWS -DPy_WIN_WIDE_FILENAMES -I/home/gub/gub/target/mingw/root/usr/include' 'LDFLAGS=-L/home/gub/gub/target/mingw/root/usr/lib -L/home/gub/gub/target/mingw/root/usr/bin -L/home/gub/gub/target/mingw/root/usr/lib/w32api' 'CC_FOR_BUILD=C_INCLUDE_PATH= CPATH= CPPFLAGS= LIBRARY_PATH= cc'
+CONFIG_ARGS=	 '--cache-file=config.cache' '--enable-shared' '--disable-static' '--disable-silent-rules' '--build=i686-linux' '--host=x86_64-linux' '--target=x86_64-linux' '--prefix=/usr' '--sysconfdir=/usr/etc' '--includedir=/usr/include' '--infodir=/usr/share/info' '--mandir=/usr/share/man' '--libdir=/usr/lib' 'build_alias=i686-linux' 'host_alias=x86_64-linux' 'target_alias=x86_64-linux' 'CC=x86_64-linux-gcc ' 'LDFLAGS=' 'CC_FOR_BUILD=C_INCLUDE_PATH= CPATH= CPPFLAGS= LIBRARY_PATH= cc'
 
 
 # Subdirectories with code
@@ -157,23 +157,23 @@ DIST=		$(DISTFILES) $(DISTDIRS)
 
 
 LIBRARY=	libpython$(VERSION).a
-LDLIBRARY=      libpython$(VERSION).dll.a
-BLDLIBRARY=     $(LDLIBRARY)
-DLLLIBRARY=	libpython$(VERSION).dll
+LDLIBRARY=      libpython$(VERSION).so
+BLDLIBRARY=     -L. -lpython$(VERSION)
+DLLLIBRARY=	
 LDLIBRARYDIR=   
-INSTSONAME=	$(LDLIBRARY)
+INSTSONAME=	libpython$(VERSION).so.1.0
 
 
-LIBS=		-lwsock32 -lpthread  -lpthread
+LIBS=		-lpthread -ldl  -lpthread -lutil
 LIBM=		-lm
-LIBC=		-lwsock32
+LIBC=		
 SYSLIBS=	$(LIBM) $(LIBC)
 SHLIBS=		$(LIBS)
 
 MAINOBJ=	python.o
 THREADOBJ=	Python/thread.o
 DLINCLDIR=	.
-DYNLOADFILE=	dynload_win.o
+DYNLOADFILE=	dynload_shlib.o
 MACHDEP_OBJS=	
 UNICODE_OBJS=   Objects/unicodeobject.o Objects/unicodectype.o
 
@@ -183,7 +183,7 @@ PYTHON_FOR_BUILD=	python
 
 # === Definitions added by makesetup ===
 
-LOCALMODLIBS=           
+LOCALMODLIBS=          
 BASEMODLIBS=
 GLHACK=-Dclear=__GLclear
 PYTHONPATH=$(COREPYTHONPATH)
@@ -1105,9 +1105,11 @@ Modules/threadmodule$(SO):  Modules/threadmodule.o; $(LDSHARED)  Modules/threadm
 Modules/signalmodule.o: $(srcdir)/Modules/signalmodule.c; $(CC) $(PY_CFLAGS)  -c $(srcdir)/Modules/signalmodule.c -o Modules/signalmodule.o
 Modules/signalmodule$(SO):  Modules/signalmodule.o; $(LDSHARED)  Modules/signalmodule.o   -o Modules/signalmodule$(SO)
 Modules/posixmodule.o: $(srcdir)/Modules/posixmodule.c; $(CC) $(PY_CFLAGS)  -c $(srcdir)/Modules/posixmodule.c -o Modules/posixmodule.o
-Modules/ntmodule$(SO):  Modules/posixmodule.o; $(LDSHARED)  Modules/posixmodule.o   -o Modules/ntmodule$(SO)
+Modules/posixmodule$(SO):  Modules/posixmodule.o; $(LDSHARED)  Modules/posixmodule.o   -o Modules/posixmodule$(SO)
 Modules/errnomodule.o: $(srcdir)/Modules/errnomodule.c; $(CC) $(PY_CFLAGS)  -c $(srcdir)/Modules/errnomodule.c -o Modules/errnomodule.o
 Modules/errnomodule$(SO):  Modules/errnomodule.o; $(LDSHARED)  Modules/errnomodule.o   -o Modules/errnomodule$(SO)
+Modules/pwdmodule.o: $(srcdir)/Modules/pwdmodule.c; $(CC) $(PY_CFLAGS)  -c $(srcdir)/Modules/pwdmodule.c -o Modules/pwdmodule.o
+Modules/pwdmodule$(SO):  Modules/pwdmodule.o; $(LDSHARED)  Modules/pwdmodule.o   -o Modules/pwdmodule$(SO)
 Modules/_sre.o: $(srcdir)/Modules/_sre.c; $(CC) $(PY_CFLAGS)  -c $(srcdir)/Modules/_sre.c -o Modules/_sre.o
 Modules/_sre$(SO):  Modules/_sre.o; $(LDSHARED)  Modules/_sre.o   -o Modules/_sre$(SO)
 Modules/_codecsmodule.o: $(srcdir)/Modules/_codecsmodule.c; $(CC) $(PY_CFLAGS)  -c $(srcdir)/Modules/_codecsmodule.c -o Modules/_codecsmodule.o
@@ -1118,7 +1120,3 @@ Modules/symtablemodule.o: $(srcdir)/Modules/symtablemodule.c; $(CC) $(PY_CFLAGS)
 Modules/_symtablemodule$(SO):  Modules/symtablemodule.o; $(LDSHARED)  Modules/symtablemodule.o   -o Modules/_symtablemodule$(SO)
 Modules/xxsubtype.o: $(srcdir)/Modules/xxsubtype.c; $(CC) $(PY_CFLAGS)  -c $(srcdir)/Modules/xxsubtype.c -o Modules/xxsubtype.o
 Modules/xxsubtype$(SO):  Modules/xxsubtype.o; $(LDSHARED)  Modules/xxsubtype.o   -o Modules/xxsubtype$(SO)
-Modules/_subprocess.o: $(srcdir)/Modules/../PC/_subprocess.c; $(CC) $(PY_CFLAGS)  -c $(srcdir)/Modules/../PC/_subprocess.c -o Modules/_subprocess.o
-Modules/_subprocess$(SO):  Modules/_subprocess.o; $(LDSHARED)  Modules/_subprocess.o   -o Modules/_subprocess$(SO)
-Modules/msvcrtmodule.o: $(srcdir)/Modules/../PC/msvcrtmodule.c; $(CC) $(PY_CFLAGS)  -c $(srcdir)/Modules/../PC/msvcrtmodule.c -o Modules/msvcrtmodule.o
-Modules/msvcrtmodule$(SO):  Modules/msvcrtmodule.o; $(LDSHARED)  Modules/msvcrtmodule.o   -o Modules/msvcrtmodule$(SO)

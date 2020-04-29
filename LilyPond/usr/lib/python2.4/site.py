@@ -177,7 +177,7 @@ def addsitepackages(known_paths):
         if prefix:
             if sys.platform in ('os2emx', 'riscos'):
                 sitedirs = [os.path.join(prefix, "Lib", "site-packages")]
-            elif True or os.sep == '/':
+            elif os.sep == '/':
                 sitedirs = [os.path.join(prefix,
                                          "lib",
                                          "python" + sys.version[:3],

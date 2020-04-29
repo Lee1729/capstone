@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 2004--2012 Han-Wen Nienhuys <hanwen@xs4all.nl>
+;;;; Copyright (C) 2004--2015 Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
 ;;;; it under the terms of the GNU General Public License as published by
@@ -52,11 +52,25 @@
   "")
 
 (define (ps-define-font font font-name scaling)
-  (string-append
-   "/" (ps-font-command font)
-   " { /" font-name
-   " " (ly:number->string scaling) " output-scale div selectfont }"
-   " bind def\n"))
+  (if (ly:get-option 'music-font-encodings)
+      (string-append
+       "/" (ps-font-command font) "-N"
+       " { /" font-name "-N"
+       " " (ly:number->string scaling) " output-scale div selectfont }"
+       " bind def\n"
+       "/" (ps-font-command font) "-S"
+       " { /" font-name "-S"
+       " " (ly:number->string scaling) " output-scale div selectfont }"
+       " bind def\n"
+       "/" (ps-font-command font) "-O"
+       " { /" font-name "-O"
+       " " (ly:number->string scaling) " output-scale div selectfont }"
+       " bind def\n")
+      (string-append
+       "/" (ps-font-command font)
+       " { /" font-name
+       " " (ly:number->string scaling) " output-scale div selectfont }"
+       " bind def\n")))
 
 ;; FIXME: duplicated in other output backends
 ;; FIXME: silly interface name
@@ -184,6 +198,8 @@
    (define-fonts paper ps-define-font ps-define-pango-pf)
    (output-variables paper)))
 
+(define never-embed-font-list (list))
+
 (define (cff-font? font)
   (let* ((cff-string (ly:otf-font-table-data font "CFF ")))
     (> (string-length cff-string) 0)))
@@ -211,17 +227,70 @@
          (footer "\n%%EndData
 %%EndResource
 %%EndResource\n"))
-    (string-append header
-                   binary-data
-                   footer)))
+    (begin
+      (set! never-embed-font-list
+            (append never-embed-font-list (list font-set-name)))
+      (string-append header
+                     binary-data
+                     footer))))
+
+(define check-conflict-and-embed-cff
+  (let ((font-list '()))
+    (lambda (name file-name font-index)
+      (if name
+          (let* ((name-symbol (string->symbol name))
+                 (args-filename-offset
+                  (cons file-name (ly:get-cff-offset file-name font-index)))
+                 (found-filename-offset (assq name-symbol font-list)))
+            (if found-filename-offset
+                (begin
+                  (if (equal? args-filename-offset (cdr found-filename-offset))
+                      (ly:debug
+                       (_ "CFF font `~a' already embedded, skipping.")
+                       name)
+                      (ly:warning
+                       (_ "Different CFF fonts which have the same name `~a' has been detected. The font cannot be embedded.")
+                       name))
+                  "")
+                (begin
+                  (ly:debug (_ "Embedding CFF font `~a'.") name)
+                  (set! font-list
+                        (acons name-symbol args-filename-offset font-list))
+                  (ps-embed-cff (ly:otf->cff file-name font-index) name 0))))
+          (begin
+            (ly:debug (_ "Initializing embedded CFF font list."))
+            (set! font-list '()))))))
+
+(define (initialize-font-embedding)
+  (check-conflict-and-embed-cff #f #f #f))
 
 (define (write-preamble paper load-fonts? port)
-  (define (internal-font? file-name)
-    (or (string-startswith file-name "Emmentaler")
-        (string-startswith file-name "emmentaler")
-        ))
+  (define (internal-font? font-name-filename)
+    (let* ((font (car font-name-filename))
+           (file-name (caddr font-name-filename))
+           (font-file-name (ly:find-file (format #f "~a.otf" file-name))))
+      (and font
+           (cff-font? font)
+           font-file-name
+           (string-contains font-file-name
+                            (ly:get-option 'datadir)))))
 
   (define (load-font-via-GS font-name-filename)
+    (define (is-collection-font? file-name)
+      (let* ((port (open-file file-name "rb"))
+             (retval
+              (if (eq? (read-char port) #\t)
+                  (if (eq? (read-char port) #\t)
+                      (if (eq? (read-char port) #\c)
+                          (if (eq? (read-char port) #\f)
+                              #t
+                              #f)
+                          #f)
+                      #f)
+                  #f)))
+        (close-port port)
+        retval))
+
     (define (ps-load-file file-name)
       (if (string? file-name)
           (if (string-contains file-name (ly:get-option 'datadir))
@@ -237,19 +306,47 @@
     (let* ((font (car font-name-filename))
            (name (cadr font-name-filename))
            (file-name (caddr font-name-filename))
+           (font-index (cadddr font-name-filename))
            (bare-file-name (ly:find-file file-name)))
-      (cons name
-            (if (mac-font? bare-file-name)
-                (handle-mac-font name bare-file-name)
-                (cond
-                 ((internal-font? file-name)
-                  (ps-load-file (ly:find-file
-                                 (format #f "~a.otf" file-name))))
-                 ((string? bare-file-name)
-                  (ps-load-file file-name))
-                 (else
-                  (ly:warning (_ "cannot embed ~S=~S") name file-name)
-                  ""))))))
+      (cond
+       ((and (number? font-index)
+             (!= font-index 0))
+        (ly:warning (_ "Font ~a cannot be loaded via Ghostscript because its font-index (~a) is not zero.")
+                    name font-index)
+        (load-font font-name-filename))
+       ((and (string? bare-file-name)
+             (eq? (ly:get-font-format bare-file-name font-index) 'CFF)
+             (is-collection-font? bare-file-name))
+        (ly:warning (_ "Font ~a cannot be loaded via Ghostscript because it is an OpenType/CFF Collection (OTC) font.")
+                    name)
+        (load-font font-name-filename))
+       ((and (string? bare-file-name)
+             (eq? (ly:get-font-format bare-file-name font-index) 'TrueType)
+             (not (ly:has-glyph-names? bare-file-name font-index)))
+        (ly:warning (_ "Font ~a cannot be used via Ghostscript because it is a TrueType font that does not have glyph names.")
+                    name)
+        (load-font font-name-filename))
+       (else
+        (begin
+          (if (or (and font (cff-font? font))
+                  (and (string? bare-file-name)
+                       (not (eq? (ly:get-font-format
+                                  bare-file-name
+                                  font-index) 'TrueType))))
+              (set! never-embed-font-list
+                    (append never-embed-font-list (list name))))
+          (cons name
+                (if (mac-font? bare-file-name)
+                    (handle-mac-font name bare-file-name)
+                    (cond
+                     ((and font (cff-font? font))
+                      (ps-load-file (ly:find-file
+                                     (format #f "~a.otf" file-name))))
+                     ((string? bare-file-name)
+                      (ps-load-file file-name))
+                     (else
+                      (ly:warning (_ "cannot embed ~S=~S") name file-name)
+                      "")))))))))
 
   (define (dir-join a b)
     (if (equal? a "")
@@ -296,18 +393,19 @@
       embed))
 
   (define (font-file-as-ps-string name file-name font-index)
-    (let* ((downcase-file-name (string-downcase file-name)))
+    (let ((font-format (ly:get-font-format file-name font-index)))
       (cond
-       ((and file-name (string-endswith downcase-file-name ".pfa"))
-        (embed-document file-name))
-       ((and file-name (string-endswith downcase-file-name ".pfb"))
-        (ly:pfb->pfa file-name))
-       ((and file-name (string-endswith downcase-file-name ".ttf"))
-        (ly:ttf->pfa file-name))
-       ((and file-name (string-endswith downcase-file-name ".ttc"))
+       ((eq? font-format (string->symbol "Type 1"))
+        ;; Type 1 (PFA and PFB) fonts
+        (begin (set! never-embed-font-list
+                     (append never-embed-font-list (list name)))
+               (ly:type1->pfa file-name)))
+       ((eq? font-format 'TrueType)
+        ;; TrueType fonts (TTF) and TrueType Collection (TTC)
         (ly:ttf->pfa file-name font-index))
-       ((and file-name (string-endswith downcase-file-name ".otf"))
-        (ps-embed-cff (ly:otf->cff file-name) name 0))
+       ((eq? font-format 'CFF)
+        ;; OpenType/CFF fonts (OTF) and OpenType/CFF Collection (OTC)
+        (check-conflict-and-embed-cff name file-name font-index))
        (else
         (ly:warning (_ "do not know how to embed ~S=~S") name file-name)
         ""))))
@@ -372,7 +470,7 @@
                     ((ly:get-option 'gs-load-lily-fonts)
                      (if (or (string-contains (caddr name)
                                               (ly:get-option 'datadir))
-                             (internal-font? (caddr name)))
+                             (internal-font? name))
                          (load-font-via-GS name)
                          (load-font name)))
                     (else
@@ -380,18 +478,95 @@
            (pfas (map font-loader font-names)))
       pfas))
 
+  (define (font-export name body)
+    (let* ((filename (format #f "~a/~a.font.ps"
+                             (ly:get-option 'font-export-dir)
+                             name))
+           (port-excl
+            (catch
+             'system-error
+             (lambda ()
+               ;; Exclusive file create:
+               ;; When the file already exists, it raises system-error.
+               (open filename (logior O_WRONLY O_CREAT O_EXCL)))
+             (lambda stuff
+               ;; Catch the system-error
+               (let ((errno (system-error-errno stuff)))
+                 (cond
+                  ;; If the file already exists, return #f.
+                  ((= errno EEXIST)
+                   (begin
+                     (ly:debug
+                       (_ "Font file `~a' already exists, skipping.")
+                       filename)
+                     #f))
+                  ;; If the cause is something else, re-throw the error.
+                  (#t
+                   (throw 'system-error (cdr stuff)))))))))
+      (if port-excl
+          ;; MinGW hack: need to have "b"inary for fonts
+          (let ((port (open-file filename "wb")))
+            (close port-excl)
+            (ly:debug (_ "Exporting font file `~a'.") filename)
+            (if (or (ly:get-option 'gs-load-fonts)
+                    (ly:get-option 'gs-load-lily-fonts))
+                (begin
+                  (display "%%BeginProlog\n" port)
+                  (format port
+"/lilypond-datadir where {pop} {userdict /lilypond-datadir (~a) put } ifelse\n"
+                          (ly:get-option 'datadir))))
+            (format port "%%BeginFont: ~a\n" name)
+            (display body port)
+            (display "%%EndFont\n" port)
+            (if (or (ly:get-option 'gs-load-fonts)
+                    (ly:get-option 'gs-load-lily-fonts))
+                (display "%%EndProlog\n" port))
+            (close-port port)))))
 
   (display "%%BeginProlog\n" port)
   (format
    port
    "/lilypond-datadir where {pop} {userdict /lilypond-datadir (~a) put } ifelse"
    (ly:get-option 'datadir))
+  (set! never-embed-font-list (list))
+  (if (ly:get-option 'font-export-dir)
+      (let ((dirname (format #f "~a" (ly:get-option 'font-export-dir))))
+        (ly:debug
+         (_ "Making font export directory `~a'.") dirname)
+        (catch
+         'system-error
+         (lambda ()
+           ;; mkdir:
+           ;; When the directory already exists, it raises system-error.
+           (mkdir dirname))
+         (lambda stuff
+           ;; Catch the system-error
+           (if (= EEXIST (system-error-errno stuff))
+               ;; If the directory already exists, avoid error.
+               (ly:debug
+                (_ "Font export directory `~a' already exists.") dirname)
+               ;; If the cause is something else, re-throw the error.
+               (throw 'system-error (cdr stuff)))))))
   (if load-fonts?
       (for-each (lambda (f)
                   (format port "\n%%BeginFont: ~a\n" (car f))
                   (display (cdr f) port)
-                  (display "%%EndFont\n" port))
+                  (display "%%EndFont\n" port)
+                  (if (ly:get-option 'font-export-dir)
+                      (font-export (car f) (cdr f))))
                 (load-fonts paper)))
+  (if (ly:get-option 'gs-never-embed-fonts)
+      (begin
+        (display "\nsystemdict /DEVICE known\n" port)
+        (display " { systemdict /DEVICE get (pdfwrite) eq {\n" port)
+        (display ".setpdfwrite << /NeverEmbed [" port)
+        (display (string-concatenate
+                  (map (lambda (f) (string-append " /" f))
+                       never-embed-font-list)) port)
+        (display " ] >> setdistillerparams\n" port)
+        (display " } if } if\n" port)))
+  (if (ly:get-option 'music-font-encodings)
+      (display (procset "encodingdefs.ps") port))
   (display (setup-variables paper) port)
 
   ;; adobe note 5002: should initialize variables before loading routines.
@@ -409,7 +584,9 @@
        (car replacement-list))
       (cadr replacement-list)))
    str
-   '((#\\ "\\\\") (#\( "\\(") (#\) "\\)"))))
+   '((#\\ "\\\\")
+     (#\nul "\\000") (#\cr "\\015") (#\newline "\\012")
+     (#\( "\\(") (#\) "\\)"))))
 
 ;;; Create DOCINFO pdfmark containing metadata
 ;;; header fields with pdf prefix override those without the prefix
@@ -417,8 +594,14 @@
   (define (metadata-encode val)
     ;; First, call ly:encode-string-for-pdf to encode the string (latin1 or
     ;; utf-16be), then escape all parentheses and backslashes
-    ;; FIXME guile-2.0: use (string->utf16 str 'big) instead
-
+    ;;
+    ;; NOTE: with guile-2.0+ ly:encode-string-for-pdf is not really needed and
+    ;; could be replaced with the following code:
+    ;;
+    ;;    (let* ((utf16be-bom #vu8(#xFE #xFF)))
+    ;;      (string-append (bytevector->string utf16be-bom "ISO-8859-1")
+    ;;                     (bytevector->string (string->utf16 val 'big) "ISO-8859-1")))
+    ;;
     (ps-quote (ly:encode-string-for-pdf val)))
   (define (metadata-lookup-output overridevar fallbackvar field)
     (let* ((overrideval (ly:modules-lookup (list header) overridevar))
@@ -426,28 +609,53 @@
            (val (if overrideval overrideval fallbackval)))
       (if val
           (format port "/~a (~a)\n" field (metadata-encode (markup->string val (list header)))))))
-  (display "[ " port)
-  (metadata-lookup-output 'pdfcomposer 'composer "Author")
-  (format port "/Creator (LilyPond ~a)\n" (lilypond-version))
-  (metadata-lookup-output 'pdftitle 'title "Title")
-  (metadata-lookup-output 'pdfsubject 'subject "Subject")
-  (metadata-lookup-output 'pdfkeywords 'keywords "Keywords")
-  (metadata-lookup-output 'pdfmodDate 'modDate "ModDate")
-  (metadata-lookup-output 'pdfsubtitle 'subtitle "Subtitle")
-  (metadata-lookup-output 'pdfcomposer 'composer "Composer")
-  (metadata-lookup-output 'pdfarranger 'arranger "Arranger")
-  (metadata-lookup-output 'pdfpoet 'poet "Poet")
-  (metadata-lookup-output 'pdfcopyright 'copyright "Copyright")
-  (display "/DOCINFO pdfmark\n\n" port))
 
+  (if (module? header)
+      (begin
+       (display "mark " port)
+       (metadata-lookup-output 'pdfauthor 'author "Author")
+       (format port "/Creator (LilyPond ~a)\n" (lilypond-version))
+       (metadata-lookup-output 'pdftitle 'title "Title")
+       (metadata-lookup-output 'pdfsubject 'subject "Subject")
+       (metadata-lookup-output 'pdfkeywords 'keywords "Keywords")
+       (metadata-lookup-output 'pdfmodDate 'modDate "ModDate")
+       (metadata-lookup-output 'pdfsubtitle 'subtitle "Subtitle")
+       (metadata-lookup-output 'pdfcomposer 'composer "Composer")
+       (metadata-lookup-output 'pdfarranger 'arranger "Arranger")
+       (metadata-lookup-output 'pdfpoet 'poet "Poet")
+       (metadata-lookup-output 'pdfcopyright 'copyright "Copyright")
+       (display "/DOCINFO pdfmark\n\n" port)))
+
+  (if (ly:get-option 'embed-source-code)
+      (let ((source-list (delete-duplicates
+                          (remove (lambda (str)
+                                    (or
+                                     (string-contains str
+                                       (ly:get-option 'datadir))
+                                     (string=? str
+                                       "<included string>")))
+                            (ly:source-files)))))
+         (display "\n/pdfmark where
+{pop} {userdict /pdfmark /cleartomark load put} ifelse" port)
+         (for-each (lambda (fname idx)
+                     (format port "\n
+mark /_objdef {ly~a_stream} /type /stream   /OBJ pdfmark
+mark {ly~a_stream} << /Type /EmbeddedFile>> /PUT pdfmark
+mark {ly~a_stream} (~a) /PUT pdfmark
+mark /Name (LilyPond source file ~a)
+/FS << /Type /Filespec /F (~a) /EF << /F {ly~a_stream} >> >> /EMBED pdfmark
+mark {ly~a_stream} /CLOSE pdfmark
+\n"
+                idx idx idx
+                (ps-quote (ly:gulp-file fname))
+                  idx fname idx idx))
+          source-list (iota (length source-list))))))
 
 (define-public (output-framework basename book scopes fields)
-  (let* ((filename (format #f "~a.ps" basename))
+  (let* ((port-tmp (make-tmpfile))
+         (tmp-name (port-filename port-tmp))
          (outputter (ly:make-paper-outputter
-                     ;; FIXME: better wrap open/open-file,
-                     ;; content-mangling is always bad.
-                     ;; MINGW hack: need to have "b"inary for embedding CFFs
-                     (open-file filename "wb")
+                     port-tmp
                      'ps))
          (paper (ly:paper-book-paper book))
          (header (ly:paper-book-header book))
@@ -457,6 +665,7 @@
          (page-number (1- (ly:output-def-lookup paper 'first-page-number)))
          (page-count (length page-stencils))
          (port (ly:outputter-port outputter)))
+    (initialize-font-embedding)
     (if (ly:get-option 'clip-systems)
         (clip-system-EPSes basename book))
     (if (ly:get-option 'dump-signatures)
@@ -466,8 +675,7 @@
     ;; don't do BeginDefaults PageMedia: A4
     ;; not necessary and wrong
     (write-preamble paper #t port)
-    (if (module? header)
-        (handle-metadata header port))
+    (handle-metadata header port)
     (for-each
      (lambda (page)
        (set! page-number (1+ page-number))
@@ -475,8 +683,8 @@
      page-stencils)
     (display "%%Trailer\n%%EOF\n" port)
     (ly:outputter-close outputter)
-    (postprocess-output book framework-ps-module filename
-                        (ly:output-formats))))
+    (postprocess-output book framework-ps-module (ly:output-formats)
+                        basename tmp-name #f)))
 
 (define-public (dump-stencil-as-EPS paper dump-me filename
                                     load-fonts)
@@ -538,6 +746,7 @@
          (rounded-bbox (to-rounded-bp-box bbox))
          (port (ly:outputter-port outputter))
          (header (eps-header paper rounded-bbox load-fonts)))
+    (initialize-font-embedding)
     (display header port)
     (write-preamble paper load-fonts port)
     (display "/mark_page_link { pop pop pop pop pop } bind def\n" port)
@@ -574,10 +783,10 @@
                                         (ly:get-option 'include-eps-fonts)
                                         bbox)
          (if do-pdf
-             (postscript->pdf 0 0 (format #f "~a.eps" filename)))
+             (postscript->pdf 0 0 filename (format #f "~a.eps" filename) #t))
          (if do-png
              (postscript->png (ly:get-option 'resolution) 0 0
-                              (format #f "~a.eps" filename)))))
+                              filename (format #f "~a.eps" filename) #t))))
      extents-system-pairs)))
 
 (define-public (clip-system-EPSes basename paper-book)
@@ -637,8 +846,27 @@
                          (format #f "~a.preview" basename)
                          #t)
     (postprocess-output book framework-ps-module
+                        (cons "png" (ly:output-formats))
+                        (format #f "~a.preview" basename)
                         (format #f "~a.preview.eps" basename)
-                        (cons "png" (ly:output-formats)))))
+                        #t
+                        )))
+
+(define-public (output-crop-framework basename book scopes fields)
+  (let* ((paper (ly:paper-book-paper book))
+         (systems (relevant-book-systems book)))
+    (dump-stencil-as-EPS paper
+                         (stack-stencils Y DOWN 0.0
+                                         (map paper-system-stencil
+                                              (reverse (reverse systems))))
+                         (format #f "~a.cropped" basename)
+                         #t)
+    (postprocess-output book framework-ps-module
+                        (cons "png" (ly:output-formats))
+                        (format #f "~a.cropped" basename)
+                        (format #f "~a.cropped.eps" basename)
+                        #t
+                        )))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -659,30 +887,23 @@
         defs-resolution
         (ly:get-option 'resolution))))
 
-(define (output-filename name)
-  (if (equal? (basename name ".ps") "-")
-      (string-append "./" name)
-      name))
-
-(define-public (convert-to-pdf book name)
+(define-public (convert-to-pdf book base-name tmp-name is-eps)
   (let* ((defs (ly:paper-book-paper book))
          (width-height (output-width-height defs))
          (width (car width-height))
-         (height (cdr width-height))
-         (filename (output-filename name)))
-    (postscript->pdf width height filename)))
+         (height (cdr width-height)))
+    (postscript->pdf width height base-name tmp-name is-eps)))
 
-(define-public (convert-to-png book name)
+(define-public (convert-to-png book base-name tmp-name is-eps)
   (let* ((defs (ly:paper-book-paper book))
          (resolution (output-resolution defs))
          (width-height (output-width-height defs))
          (width (car width-height))
-         (height (cdr width-height))
-         (filename (output-filename name)))
-    (postscript->png resolution width height filename)))
+         (height (cdr width-height)))
+    (postscript->png resolution width height base-name tmp-name is-eps)))
 
-(define-public (convert-to-ps book name)
-  #t)
+(define-public (convert-to-ps book base-name tmp-name is-eps)
+  (postscript->ps base-name tmp-name is-eps))
 
 (define-public (output-classic-framework basename book scopes fields)
   (ly:error (_ "\nThe PostScript backend does not support the
@@ -690,7 +911,7 @@ system-by-system output.  For that, use the EPS backend instead,
 
   lilypond -dbackend=eps FILE
 
-If have cut & pasted a lilypond fragment from a webpage, be sure
+If you have cut & pasted a lilypond fragment from a webpage, be sure
 to only remove anything before
 
   %% ****************************************************************

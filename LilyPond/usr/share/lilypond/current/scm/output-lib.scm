@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 1998--2012 Jan Nieuwenhuizen <janneke@gnu.org>
+;;;; Copyright (C) 1998--2015 Jan Nieuwenhuizen <janneke@gnu.org>
 ;;;; Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
@@ -25,6 +25,33 @@
 
 (define-public (grob::is-live? grob)
   (pair? (ly:grob-basic-properties grob)))
+
+(define-public (grob::name grob)
+  "Return the name of the grob @var{grob} as a symbol."
+  (assq-ref (ly:grob-property grob 'meta) 'name))
+
+(define-public (grob::rhythmic-location grob)
+  "Return a pair consisting of the measure number and moment within
+   the measure of grob @var{grob}."
+  (let* (; all grobs support either spanner- or item-interface
+         (item (if (grob::has-interface grob 'spanner-interface)
+                   (ly:spanner-bound grob LEFT)
+                   grob))
+         (col (ly:item-get-column item)))
+    (if (ly:grob? col)
+        (ly:grob-property col 'rhythmic-location)
+        '())))
+
+(define-public (grob::when grob)
+  "Return the global timestep (a moment) of grob @var{grob}."
+  (let* (; all grobs support either spanner- or item-interface
+         (item (if (grob::has-interface grob 'spanner-interface)
+                   (ly:spanner-bound grob LEFT)
+                   grob))
+         (col (ly:item-get-column item)))
+    (if (ly:grob? col)
+        (ly:grob-property col 'when)
+        '())))
 
 (define-public (make-stencil-boxer thickness padding callback)
   "Return function that adds a box around the grob passed as argument."
@@ -102,6 +129,44 @@
          (line-thickness (ly:output-def-lookup layout 'line-thickness)))
 
     line-thickness))
+
+(define (grob::objects-from-interface grob iface)
+  "For grob @var{grob} return the name and contents of all properties
+ within interface @var{iface} having type @code{ly:grob?} or
+ @code{ly:grob-array?}."
+  (let* ((iface-entry (hashq-ref (ly:all-grob-interfaces) iface))
+         (props (if iface-entry (last iface-entry) '()))
+         (pointer-props
+          (filter
+           (lambda (prop)
+             (let ((type (object-property prop 'backend-type?)))
+               (or (eq? type ly:grob?)
+                   (eq? type ly:grob-array?))))
+           props)))
+    (if (null? pointer-props)
+        '()
+        (list iface
+          (map
+           (lambda (prop) (list prop (ly:grob-object grob prop)))
+           pointer-props)))))
+
+(define-public (grob::all-objects grob)
+  "Return a list of the names and contents of all properties having type
+ @code{ly:grob?} or @code{ly:grob-array?} for all interfaces supported by
+ grob @var{grob}."
+  (let loop ((ifaces (ly:grob-interfaces grob)) (result '()))
+    (if (null? ifaces)
+        (cons grob (list result))
+        (let ((entry (grob::objects-from-interface grob (car ifaces))))
+          (if (pair? entry)
+              (loop (cdr ifaces) (append result (list entry)))
+              (loop (cdr ifaces) result))))))
+
+(use-modules (ice-9 pretty-print))
+(define-public (grob::display-objects grob)
+  "Display all objects stored in properties of grob @var{grob}."
+  (pretty-print (grob::all-objects grob))
+  (newline))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; beam slope
@@ -249,6 +314,14 @@
    ly:self-alignment-interface::y-aligned-on-self
    ly:self-alignment-interface::pure-y-aligned-on-self))
 
+(define-public (self-alignment-interface::self-aligned-on-breakable grob)
+  "Return the @code{X-offset} that places @var{grob} according to its
+   @code{self-alignment-X} over the reference point defined by the
+   @code{break-align-anchor-alignment} of a @code{break-aligned} item
+   such as a @code{Clef}."
+  (+ (ly:break-alignable-interface::self-align-callback grob)
+     (ly:self-alignment-interface::x-aligned-on-self grob)))
+
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; staff symbol
 
@@ -322,56 +395,64 @@
 (define-public (select-head-glyph style log)
   "Select a note head glyph string based on note head style @var{style}
 and duration-log @var{log}."
-  (case style
-    ;; "default" style is directly handled in note-head.cc as a
-    ;; special case (HW says, mainly for performance reasons).
-    ;; Therefore, style "default" does not appear in this case
-    ;; statement.  -- jr
-    ((xcircle) "2xcircle")
-    ((harmonic) "0harmonic")
-    ((harmonic-black) "2harmonic")
-    ((harmonic-mixed) (if (<= log 1) "0harmonic"
-                          "2harmonic"))
-    ((baroque)
-     ;; Oops, I actually would not call this "baroque", but, for
-     ;; backwards compatibility to 1.4, this is supposed to take
-     ;; brevis, longa and maxima from the neo-mensural font and all
-     ;; other note heads from the default font.  -- jr
-     (if (< log 0)
-         (string-append (number->string log) "neomensural")
-         (number->string log)))
-    ((altdefault)
-     ;; Like default, but brevis is drawn with double vertical lines
-     (if (= log -1)
-         (string-append (number->string log) "double")
-         (number->string log)))
-    ((mensural)
-     (string-append (number->string log) (symbol->string style)))
-    ((petrucci)
-     (if (< log 0)
-         (string-append (number->string log) "mensural")
-         (string-append (number->string log) (symbol->string style))))
-    ((blackpetrucci)
-     (if (< log 0)
-         (string-append (number->string log) "blackmensural")
-         (string-append (number->string log) (symbol->string style))))
-    ((semipetrucci)
-     (if (< log 0)
-         (string-append (number->string log) "semimensural")
-         (string-append (number->string log) "petrucci")))
-    ((neomensural)
-     (string-append (number->string log) (symbol->string style)))
-    ((kievan)
-     (string-append (number->string log) "kievan"))
-    (else
-     (if (string-match "vaticana*|hufnagel*|medicaea*" (symbol->string style))
-         (symbol->string style)
-         (string-append (number->string (max 0 log))
-                        (symbol->string style))))))
+  (if (symbol? style)
+      (case style
+        ;; "default" style is directly handled in note-head.cc as a
+        ;; special case (HW says, mainly for performance reasons).
+        ;; Therefore, style "default" does not appear in this case
+        ;; statement.  -- jr
+        ;; Though we not to care if style is '(), see below.  -- harm
+        ((xcircle) "2xcircle")
+        ((harmonic) "0harmonic")
+        ((harmonic-black) "2harmonic")
+        ((harmonic-mixed) (if (<= log 1) "0harmonic"
+                              "2harmonic"))
+        ((baroque)
+         ;; Oops, I actually would not call this "baroque", but, for
+         ;; backwards compatibility to 1.4, this is supposed to take
+         ;; brevis, longa and maxima from the neo-mensural font and all
+         ;; other note heads from the default font.  -- jr
+         (if (< log 0)
+             (string-append (number->string log) "neomensural")
+             (number->string log)))
+        ((altdefault)
+         ;; Like default, but brevis is drawn with double vertical lines
+         (if (= log -1)
+             (string-append (number->string log) "double")
+             (number->string log)))
+        ((mensural)
+         (string-append (number->string log) (symbol->string style)))
+        ((petrucci)
+         (if (< log 0)
+             (string-append (number->string log) "mensural")
+             (string-append (number->string log) (symbol->string style))))
+        ((blackpetrucci)
+         (if (< log 0)
+             (string-append (number->string log) "blackmensural")
+             (string-append (number->string log) (symbol->string style))))
+        ((semipetrucci)
+         (if (< log 0)
+             (string-append (number->string log) "semimensural")
+             (string-append (number->string log) "petrucci")))
+        ((neomensural)
+         (string-append (number->string log) (symbol->string style)))
+        ((kievan)
+         (string-append (number->string log) "kievan"))
+        (else
+         (if (string-match "vaticana*|hufnagel*|medicaea*"
+                           (symbol->string style))
+             (symbol->string style)
+             (string-append (number->string (max 0 log))
+                            (symbol->string style)))))
+      ;; 'vaticana-ligature-interface has a 'glyph-name-property for NoteHead.
+      ;; Probably best to return an empty list here, if called in a context
+      ;; without setting 'style, i.e. 'style is '(), to avoid a scheme-error.
+      '()))
 
 (define-public (note-head::calc-glyph-name grob)
   (let* ((style (ly:grob-property grob 'style))
-         (log (if (string-match "kievan*" (symbol->string style))
+         (log (if (and (symbol? style)
+                       (string-match "kievan*" (symbol->string style)))
                   (min 3 (ly:grob-property grob 'duration-log))
                   (min 2 (ly:grob-property grob 'duration-log)))))
     (select-head-glyph style log)))
@@ -395,9 +476,12 @@ and duration-log @var{log}."
                                 (ly:grob-property stem 'thickness)
                                 1.3)
                             line-thickness))
-         (radius (/ (+ staff-space line-thickness) 2))
-         (letter (markup #:center-align #:vcenter pitch-string))
-         (filled-circle (markup #:draw-circle radius 0 #t)))
+         (font-size (ly:grob-property grob 'font-size 0))
+         (radius (* (magstep font-size) (/ (+ staff-space line-thickness) 2)))
+         (letter (make-fontsize-markup
+                  -8
+                  (make-center-align-markup (make-vcenter-markup pitch-string))))
+         (filled-circle (make-draw-circle-markup radius 0 #t)))
 
     (ly:stencil-translate-axis
      (grob-interpret-markup
@@ -562,34 +646,38 @@ and duration-log @var{log}."
 ;; a formatter function, which is simply a wrapper around an existing
 ;; tuplet formatter function. It takes the value returned by the given
 ;; function and appends a note of given length.
-(define-public ((tuplet-number::append-note-wrapper function note) grob)
-  (let ((txt (if function (function grob) #f)))
+(define ((tuplet-number::append-note-wrapper function note) grob)
+  (let ((txt (and function (function grob))))
 
     (if txt
-        (markup txt #:fontsize -5 #:note note UP)
-        (markup #:fontsize -5 #:note note UP))))
+        (make-line-markup
+         (list txt (make-fontsize-markup -5 (make-note-markup note UP))))
+        (make-fontsize-markup -5 (make-note-markup note UP)))))
+(export tuplet-number::append-note-wrapper)
 
 ;; Print a tuplet denominator with a different number than the one derived from
 ;; the actual tuplet fraction
-(define-public ((tuplet-number::non-default-tuplet-denominator-text denominator)
+(define ((tuplet-number::non-default-tuplet-denominator-text denominator)
                 grob)
   (number->string (if denominator
                       denominator
                       (ly:event-property (event-cause grob) 'denominator))))
+(export tuplet-number::non-default-tuplet-denominator-text)
 
 ;; Print a tuplet fraction with different numbers than the ones derived from
 ;; the actual tuplet fraction
-(define-public ((tuplet-number::non-default-tuplet-fraction-text
+(define ((tuplet-number::non-default-tuplet-fraction-text
                  denominator numerator) grob)
   (let* ((ev (event-cause grob))
          (den (if denominator denominator (ly:event-property ev 'denominator)))
          (num (if numerator numerator (ly:event-property ev 'numerator))))
 
     (format #f "~a:~a" den num)))
+(export tuplet-number::non-default-tuplet-fraction-text)
 
 ;; Print a tuplet fraction with note durations appended to the numerator and the
 ;; denominator
-(define-public ((tuplet-number::fraction-with-notes
+(define ((tuplet-number::fraction-with-notes
                  denominatornote numeratornote) grob)
   (let* ((ev (event-cause grob))
          (denominator (ly:event-property ev 'denominator))
@@ -597,10 +685,11 @@ and duration-log @var{log}."
 
     ((tuplet-number::non-default-fraction-with-notes
       denominator denominatornote numerator numeratornote) grob)))
+(export tuplet-number::fraction-with-notes)
 
 ;; Print a tuplet fraction with note durations appended to the numerator and the
 ;; denominator
-(define-public ((tuplet-number::non-default-fraction-with-notes
+(define ((tuplet-number::non-default-fraction-with-notes
                  denominator denominatornote numerator numeratornote) grob)
   (let* ((ev (event-cause grob))
          (den (if denominator denominator (ly:event-property ev 'denominator)))
@@ -608,10 +697,11 @@ and duration-log @var{log}."
 
     (make-concat-markup (list
                          (make-simple-markup (format #f "~a" den))
-                         (markup #:fontsize -5 #:note denominatornote UP)
+                         (make-fontsize-markup -5 (make-note-markup denominatornote UP))
                          (make-simple-markup " : ")
                          (make-simple-markup (format #f "~a" num))
-                         (markup #:fontsize -5 #:note numeratornote UP)))))
+                         (make-fontsize-markup -5 (make-note-markup numeratornote UP))))))
+(export tuplet-number::non-default-fraction-with-notes)
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -691,7 +781,7 @@ and duration-log @var{log}."
 ;; annotations
 
 (define-public (numbered-footnotes int)
-  (markup #:tiny (number->string (+ 1 int))))
+  (make-tiny-markup (number->string (+ 1 int))))
 
 (define-public (symbol-footnotes int)
   (define (helper symbols out idx n)
@@ -701,10 +791,10 @@ and duration-log @var{log}."
                 (string-append out (list-ref symbols idx))
                 idx
                 (- n 1))))
-  (markup #:tiny (helper '("*" "†" "‡" "§" "¶")
-                         ""
-                         (remainder int 5)
-                         (+ 1 (quotient int 5)))))
+  (make-tiny-markup (helper '("*" "†" "‡" "§" "¶")
+                            ""
+                            (remainder int 5)
+                            (+ 1 (quotient int 5)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; accidentals
@@ -718,8 +808,7 @@ and duration-log @var{log}."
 
 (define-public accidental-interface::height
   (ly:make-unpure-pure-container
-   ly:accidental-interface::height
-   ly:accidental-interface::pure-height))
+   ly:accidental-interface::height))
 
 (define-public cancellation-glyph-name-alist
   '((0 . "accidentals.natural")))
@@ -802,8 +891,9 @@ and duration-log @var{log}."
               (ly:stencil-aligned-to
                (make-parenthesis-stencil y-extent
                                          half-thickness
-                                         (- width)
-                                         angularity)
+                                         width
+                                         angularity
+                                         -1)
                Y CENTER)
               X RIGHT))
          (lp-x-extent
@@ -813,7 +903,8 @@ and duration-log @var{log}."
                (make-parenthesis-stencil y-extent
                                          half-thickness
                                          width
-                                         angularity)
+                                         angularity
+                                         1)
                Y CENTER)
               X LEFT))
          (rp-x-extent
@@ -824,15 +915,28 @@ and duration-log @var{log}."
     (set! rp (ly:make-stencil (ly:stencil-expr rp)
                               rp-x-extent
                               (ly:stencil-extent rp Y)))
-    (list (stencil-whiteout lp)
-          (stencil-whiteout rp))))
+    (list (stencil-whiteout-box lp)
+          (stencil-whiteout-box rp))))
+
+(define-public (parentheses-item::y-extent grob) (ly:grob::stencil-height grob))
 
 (define (parenthesize-elements grob . rest)
   (let* ((refp (if (null? rest)
                    grob
                    (car rest)))
-         (elts (ly:grob-object grob 'elements))
-         (x-ext (ly:relative-group-extent elts refp X))
+         (elts (ly:grob-array->list (ly:grob-object grob 'elements)))
+         (get-friends
+           (lambda (g)
+             (let ((syms (ly:grob-property g 'parenthesis-friends '()))
+                   (get-friend (lambda (s)
+                                 (let ((f (ly:grob-object g s)))
+                                   (cond
+                                     ((ly:grob? f) (list f))
+                                     ((ly:grob-array? f) (ly:grob-array->list f))
+                                     (else '()))))))
+               (apply append (map get-friend syms)))))
+         (friends (apply append elts (map get-friends elts)))
+         (x-ext (ly:relative-group-extent friends refp X))
          (stencils (ly:grob-property grob 'stencils))
          (lp (car stencils))
          (rp (cadr stencils))
@@ -876,14 +980,57 @@ and duration-log @var{log}."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;
 
-(define-public (chain-grob-member-functions grob value . funcs)
-  (for-each
-   (lambda (func)
-     (set! value (func grob value)))
-   funcs)
+(define-public (grob::compose-function func data)
+  "This creates a callback entity to be stored in a grob property,
+based on the grob property data @var{data} (which can be plain data, a
+callback itself, or an unpure-pure-container).
 
-  value)
+Function or unpure-pure-container @var{func} accepts a grob and a
+value and returns another value.  Depending on the type of @var{data},
+@var{func} is used for building a grob callback or an
+unpure-pure-container."
+  (if (or (ly:unpure-pure-container? func)
+          (ly:unpure-pure-container? data))
+      (ly:make-unpure-pure-container
+       (lambda (grob) (ly:unpure-call func grob (ly:unpure-call data grob)))
+       (lambda (grob start end)
+         (ly:pure-call func grob start end
+                       (ly:pure-call data grob start end))))
+      (lambda (grob) (ly:unpure-call func grob (ly:unpure-call data grob)))))
 
+;; Don't use define* since then we can't start the body with define in
+;; Guile-1.8: crazy bug.
+(define-public (grob::offset-function func data . rest)
+  "This creates a callback entity to be stored in a grob property,
+based on the grob property data @var{data} (which can be plain data, a
+callback itself, or an unpure-pure-container).
+
+Function @var{func} accepts a grob and returns a value that is added
+to the value resulting from @var{data}.  Optional argument @var{plus}
+defaults to @code{+} but may be changed to allow for using a different
+underlying accumulation.
+
+If @var{data} is @code{#f} or @code{'()}, it is not included in the sum."
+  (define plus (if (null? rest) + (car rest)))
+  (define (maybeplus a b)
+    (if (or (not b) (null? b)) a (plus a b)))
+  (cond ((or (not data) (null? data))
+         func)
+        ((or (ly:unpure-pure-container? func)
+             (ly:unpure-pure-container? data))
+         (ly:make-unpure-pure-container
+          (lambda rest
+            (maybeplus (apply ly:unpure-call func rest)
+                       (apply ly:unpure-call data rest)))
+          (lambda rest
+            (maybeplus (apply ly:pure-call func rest)
+                       (apply ly:pure-call data rest)))))
+        ((or (procedure? func)
+             (procedure? data))
+         (lambda rest
+           (maybeplus (apply ly:unpure-call func rest)
+                      (apply ly:unpure-call data rest))))
+        (else (plus func data))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; falls/doits
@@ -912,8 +1059,8 @@ and duration-log @var{log}."
 
          (left-x (+ padding
                     (max
-                     (interval-end (ly:grob-robust-relative-extent
-                                    left-span common X))
+                     (interval-end (ly:generic-bound-extent
+                                    left-span common))
                      (if
                       (and dots
                            (close
@@ -923,7 +1070,7 @@ and duration-log @var{log}."
                        (ly:grob-robust-relative-extent dots common X))
                       (- INFINITY-INT)))))
          (right-x (max (- (interval-start
-                           (ly:grob-robust-relative-extent right-span common X))
+                           (ly:generic-bound-extent right-span common))
                           padding)
                        (+ left-x minimum-length)))
          (self-x (ly:grob-relative-coordinate spanner common X))
@@ -982,14 +1129,18 @@ and duration-log @var{log}."
 (define-public (string-number::calc-text grob)
   (let ((event (event-cause grob)))
     (or (ly:event-property event 'text #f)
-        (number->string (ly:event-property event 'string-number) 10))))
+        (number-format
+         (ly:grob-property grob 'number-type)
+         (ly:event-property event 'string-number)))))
 
 (define-public (stroke-finger::calc-text grob)
   (let ((event (event-cause grob)))
     (or (ly:event-property event 'text #f)
-        (vector-ref (ly:grob-property grob 'digit-names)
-                    (1- (max 1
-                             (min 5 (ly:event-property event 'digit))))))))
+        (let ((digit-names (ly:grob-property grob 'digit-names)))
+          (vector-ref digit-names
+                      (1- (max 1
+                               (min (vector-length digit-names)
+                                    (ly:event-property event 'digit)))))))))
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -1021,21 +1172,51 @@ between the two text elements."
                                              '(bound-details left padding)
                                              (+ my-padding script-padding)))))))
 
-(define-public ((elbowed-hairpin coords mirrored?) grob)
+(define-public (make-connected-line points grob)
+  "Takes a list of points, @var{points}.
+Returns a line connecting @var{points}, using @code{ly:line-interface::line},
+gets layout information from @var{grob}"
+  (define (connected-points grob ls pts)
+    (if (not (pair? (cdr pts)))
+        (reduce ly:stencil-add empty-stencil ls)
+        (connected-points
+          grob
+          (cons
+            (ly:line-interface::line
+              grob
+              (car (first pts))
+              (cdr (first pts))
+              (car (second pts))
+              (cdr (second pts)))
+            ls)
+          (cdr pts))))
+  (if (< (length points) 2)
+      (begin
+        (ly:warning
+          "´make-connected-line´ needs at least two points: ~a"
+          points)
+        empty-stencil)
+      (connected-points grob '() points)))
+
+(define ((elbowed-hairpin coords mirrored?) grob)
   "Create hairpin based on a list of @var{coords} in @code{(cons x y)}
 form.  @code{x} is the portion of the width consumed for a given line
 and @code{y} is the portion of the height.  For example,
-@code{'((0.3 . 0.7) (0.8 . 0.9) (1.0 . 1.0))} means that at the point
+@code{'((0 . 0) (0.3 . 0.7) (0.8 . 0.9) (1.0 . 1.0))} means that at the point
 where the hairpin has consumed 30% of its width, it must
 be at 70% of its height.  Once it is to 80% width, it
-must be at 90% height.  It finishes at
-100% width and 100% height.  @var{mirrored?} indicates if the hairpin
-is mirrored over the Y-axis or if just the upper part is drawn.
+must be at 90% height.  It finishes at 100% width and 100% height.
+If @var{coords} does not begin with @code{'(0 . 0)} the final hairpin may have
+an open tip.  For example '(0 . 0.5) will cause an open end of 50% of the usual
+height.
+@var{mirrored?} indicates if the hairpin is mirrored over the Y-axis or if
+just the upper part is drawn.
 Returns a function that accepts a hairpin grob as an argument
 and draws the stencil based on its coordinates.
+
 @lilypond[verbatim,quote]
 #(define simple-hairpin
-  (elbowed-hairpin '((1.0 . 1.0)) #t))
+  (elbowed-hairpin '((0 . 0)(1.0 . 1.0)) #t))
 
 \\relative c' {
   \\override Hairpin #'stencil = #simple-hairpin
@@ -1043,49 +1224,52 @@ and draws the stencil based on its coordinates.
 }
 @end lilypond
 "
-  (define (pair-to-list pair)
-    (list (car pair) (cdr pair)))
-  (define (normalize-coords goods x y)
+  (define (scale-coords coords-list x y)
     (map
-     (lambda (coord)
-       (cons (* x (car coord)) (* y (cdr coord))))
-     goods))
-  (define (my-c-p-s points thick decresc?)
-    (make-connected-path-stencil
-     points
-     thick
-     (if decresc? -1.0 1.0)
-     1.0
-     #f
-     #f))
+      (lambda (coord) (cons (* x (car coord)) (* y (cdr coord))))
+      coords-list))
+
+  (define (hairpin::print-part points decresc? me)
+    (let ((stil (make-connected-line points me)))
+      (if decresc? (ly:stencil-scale stil -1 1) stil)))
+
   ;; outer let to trigger suicide
   (let ((sten (ly:hairpin::print grob)))
     (if (grob::is-live? grob)
-        (let* ((decresc? (eq? (ly:grob-property grob 'grow-direction) LEFT))
-               (thick (ly:grob-property grob 'thickness 0.1))
-               (thick (* thick (layout-line-thickness grob)))
+        (let* ((decresc? (eqv? (ly:grob-property grob 'grow-direction) LEFT))
                (xex (ly:stencil-extent sten X))
                (lenx (interval-length xex))
                (yex (ly:stencil-extent sten Y))
                (leny (interval-length yex))
                (xtrans (+ (car xex) (if decresc? lenx 0)))
                (ytrans (car yex))
-               (uplist (map pair-to-list
-                            (normalize-coords coords lenx (/ leny 2))))
-               (downlist (map pair-to-list
-                              (normalize-coords coords lenx (/ leny -2)))))
-          (ly:stencil-translate
-           (ly:stencil-add
-            (my-c-p-s uplist thick decresc?)
-            (if mirrored? (my-c-p-s downlist thick decresc?) empty-stencil))
-           (cons xtrans ytrans)))
+               (uplist (scale-coords coords lenx (/ leny 2)))
+               (downlist (scale-coords coords lenx (/ leny -2)))
+               (stil
+                 (ly:stencil-aligned-to
+                   (ly:stencil-translate
+                     (ly:stencil-add
+                       (hairpin::print-part uplist decresc? grob)
+                       (if mirrored?
+                           (hairpin::print-part downlist decresc? grob)
+                           empty-stencil))
+                     (cons xtrans ytrans))
+                   Y CENTER))
+               (stil-y-extent (ly:stencil-extent stil Y)))
+        ;; Return a final stencil properly aligned in Y-axis direction and with
+        ;; proper extents. Otherwise stencil-operations like 'box-stencil' will
+        ;; return badly. Extent in X-axis direction is taken from the original,
+        ;; in Y-axis direction from the new stencil.
+        (ly:make-stencil (ly:stencil-expr stil) xex stil-y-extent))
+        ;; return empty, if no Hairpin.stencil present.
         '())))
+(export elbowed-hairpin)
 
 (define-public flared-hairpin
-  (elbowed-hairpin '((0.95 . 0.4) (1.0 . 1.0)) #t))
+  (elbowed-hairpin '((0 . 0) (0.95 . 0.4) (1.0 . 1.0)) #t))
 
 (define-public constante-hairpin
-  (elbowed-hairpin '((1.0 . 0.0) (1.0 . 1.0)) #f))
+  (elbowed-hairpin '((0 . 0) (1.0 . 0.0) (1.0 . 1.0)) #f))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; lyrics
@@ -1099,13 +1283,14 @@ and draws the stencil based on its coordinates.
                                     (make-tied-lyric-markup text)
                                     text))))
 
-(define-public ((grob::calc-property-by-copy prop) grob)
+(define ((grob::calc-property-by-copy prop) grob)
   (ly:event-property (event-cause grob) prop))
+(export grob::calc-property-by-copy)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; general inheritance
 
-(define-public ((grob::inherit-parent-property axis property . default) grob)
+(define ((grob::inherit-parent-property axis property . default) grob)
   "@var{grob} callback generator for inheriting a @var{property} from
 an @var{axis} parent, defaulting to @var{default} if there is no
 parent or the parent has no setting."
@@ -1115,6 +1300,7 @@ parent or the parent has no setting."
       (apply ly:grob-property parent property default))
      ((pair? default) (car default))
      (else '()))))
+(export grob::inherit-parent-property)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; fret boards
@@ -1139,17 +1325,31 @@ parent or the parent has no setting."
 
 (define-public (script-interface::calc-x-offset grob)
   (ly:grob-property grob 'positioning-done)
-  (let* ((shift (ly:grob-property grob 'toward-stem-shift 0.0))
+  (let* ((shift-when-alone (ly:grob-property grob 'toward-stem-shift 0.0))
+         (shift-in-column (ly:grob-property grob 'toward-stem-shift-in-column))
+         (script-column (ly:grob-object grob 'script-column))
+         (shift
+           (if (and (ly:grob? script-column)
+                    (number? shift-in-column)
+                    ;; ScriptColumn can contain grobs other than Script.
+                    ;; These should not result in a shift.
+                    (any (lambda (s)
+                           (and (not (eq? s grob))
+                                (grob::has-interface s 'script-interface)
+                                (not (grob::has-interface s
+                                       'accidental-suggestion-interface))))
+                         (ly:grob-array->list
+                           (ly:grob-object script-column 'scripts))))
+               shift-in-column shift-when-alone))
          (note-head-location
-          (ly:self-alignment-interface::centered-on-x-parent grob))
+          (ly:self-alignment-interface::aligned-on-x-parent grob))
          (note-head-grob (ly:grob-parent grob X))
          (stem-grob (ly:grob-object note-head-grob 'stem)))
 
     (+ note-head-location
-       ;; If the property 'toward-stem-shift is defined and the script
-       ;; has the same direction as the stem, move the script accordingly.
-       ;; Since scripts can also be over skips, we need to check whether
-       ;; the grob has a stem at all.
+       ;; If the script has the same direction as the stem, move the script
+       ;; in accordance with the value of 'shift'.  Since scripts can also be
+       ;; over skips, we need to check whether the grob has a stem at all.
        (if (ly:grob? stem-grob)
            (let ((dir1 (ly:grob-property grob 'direction))
                  (dir2 (ly:grob-property stem-grob 'direction)))
@@ -1342,3 +1542,105 @@ parent or the parent has no setting."
               (larger (max (car edge-height) (cdr edge-height))))
           (interval-union '(0 . 0) (cons smaller larger)))
         '(0 . 0))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; measure counter
+
+(define-public (measure-counter-stencil grob)
+  "Print a number for a measure count.  Broken measures are numbered in
+parentheses."
+  (let* ((num (make-simple-markup
+                (number->string (ly:grob-property grob 'count-from))))
+         (orig (ly:grob-original grob))
+         (siblings (ly:spanner-broken-into orig)) ; have we been split?
+         (num
+           (if (or (null? siblings)
+                   (eq? grob (car siblings)))
+              num
+              (make-parenthesize-markup num)))
+         (num (grob-interpret-markup grob num))
+         (num (ly:stencil-aligned-to
+                num X (ly:grob-property grob 'self-alignment-X)))
+         (left-bound (ly:spanner-bound grob LEFT))
+         (right-bound (ly:spanner-bound grob RIGHT))
+         (refp (ly:grob-common-refpoint left-bound right-bound X))
+         (spacing-pair
+           (ly:grob-property grob
+                             'spacing-pair
+                             '(break-alignment . break-alignment)))
+         (ext-L (ly:paper-column::break-align-width left-bound
+                                                    (car spacing-pair)))
+         (ext-R (ly:paper-column::break-align-width right-bound
+                                                    (cdr spacing-pair)))
+         (num
+           (ly:stencil-translate-axis
+             num
+             (+ (* 0.5 (- (car ext-R)
+                          (cdr ext-L)))
+                (- (cdr ext-L)
+                   (ly:grob-relative-coordinate grob refp X)))
+             X)))
+    num))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; HorizontalBracketText
+
+(define-public (ly:horizontal-bracket-text::print grob)
+  (let ((text (ly:grob-property grob 'text)))
+    (if (or (null? text)
+            (equal? text "")
+            (equal? text empty-markup))
+        (begin
+          (ly:grob-suicide! grob)
+          '())
+        (let* ((orig (ly:grob-original grob))
+               (siblings (ly:spanner-broken-into orig))
+               (text
+                 (if (or (null? siblings)
+                         (eq? grob (car siblings)))
+                     text
+                     (if (string? text)
+                         (string-append "(" text ")")
+                         (make-parenthesize-markup text)))))
+          (grob-interpret-markup grob text)))))
+
+(define-public (ly:horizontal-bracket-text::calc-direction grob)
+  (let* ((bracket (ly:grob-object grob 'bracket))
+         (bracket-dir (ly:grob-property bracket 'direction DOWN)))
+    bracket-dir))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; make-engraver helper macro
+
+(defmacro-public make-engraver forms
+  "Helper macro for creating Scheme engravers.
+
+The usual form for an engraver is an association list (or alist)
+mapping symbols to either anonymous functions or to another such
+alist.
+
+@code{make-engraver} accepts forms where the first element is either
+an argument list starting with the respective symbol, followed by the
+function body (comparable to the way @code{define} is used for
+defining functions), or a single symbol followed by subordinate forms
+in the same manner.  You can also just make an alist pair
+literally (the @samp{car} is quoted automatically) as long as the
+unevaluated @samp{cdr} is not a pair.  This is useful if you already
+have defined your engraver functions separately.
+
+Symbols mapping to a function would be @code{initialize},
+@code{start-translation-timestep}, @code{process-music},
+@code{process-acknowledged}, @code{stop-translation-timestep}, and
+@code{finalize}.  Symbols mapping to another alist specified in the
+same manner are @code{listeners} with the subordinate symbols being
+event classes, and @code{acknowledgers} and @code{end-acknowledgers}
+with the subordinate symbols being interfaces."
+  (let loop ((forms forms))
+    (if (or (null? forms) (pair? forms))
+        `(list
+          ,@(map (lambda (form)
+                   (if (pair? (car form))
+                       `(cons ',(caar form) (lambda ,(cdar form) ,@(cdr form)))
+                       `(cons ',(car form) ,(loop (cdr form)))))
+                 forms))
+        forms)))

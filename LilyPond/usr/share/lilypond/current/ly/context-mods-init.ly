@@ -1,6 +1,6 @@
 %%%% This file is part of LilyPond, the GNU music typesetter.
 %%%%
-%%%% Copyright (C) 2011--2012 Han-Wen Nienhuys <hanwen@xs4all.nl>
+%%%% Copyright (C) 2011--2015 Han-Wen Nienhuys <hanwen@xs4all.nl>
 %%%%                    Jan Nieuwenhuizen <janneke@gnu.org>
 %%%%
 %%%% LilyPond is free software: you can redistribute it and/or modify
@@ -23,3 +23,34 @@ RemoveEmptyStaves = \with {
   \description "Remove staves which are considered to be empty according
 to the list of interfaces set by @code{keepAliveInterfaces}."
 }
+
+RemoveAllEmptyStaves = \with {
+  \override VerticalAxisGroup.remove-empty = ##t
+  \override VerticalAxisGroup.remove-first = ##t
+  \description "Remove staves which are considered to be empty according
+to the list of interfaces set by @code{keepAliveInterfaces}, including those
+in the first system."
+}
+
+inherit-acceptability =
+#(define-void-function (to from)
+   (symbol? symbol?)
+   (_i "When used in an output definition, will modify all context
+definitions such that context @var{to} is accepted as a child by all
+contexts that also accept @var{from}.")
+   (let* ((module (current-module))
+	  (cmod (ly:make-context-mod)))
+     (ly:add-context-mod cmod (list 'accepts to))
+     (if (output-module? module)
+	 (module-map
+	  (lambda (_sym var)
+	    (if (variable-bound? var)
+		(let ((cdef (variable-ref var)))
+		  (if (ly:context-def? cdef)
+		      (let ((accepts (ly:context-def-lookup cdef 'accepts)))
+			(if (and (memq from accepts)
+				 (not (memq to accepts)))
+			    (variable-set! var
+					   (ly:context-def-modify cdef cmod))))))))
+	  module)
+	 (ly:parser-error (_ "Not in an output definition")))))

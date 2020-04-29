@@ -1,6 +1,6 @@
 %%%% This file is part of LilyPond, the GNU music typesetter.
 %%%%
-%%%% Copyright (C) 2004--2012 Han-Wen Nienhuys <hanwen@xs4all.nl>
+%%%% Copyright (C) 2004--2015 Han-Wen Nienhuys <hanwen@xs4all.nl>
 %%%%                          Jan Nieuwenhuizen <janneke@gnu.org>
 %%%%                          Neil Puttock <n.puttock@gmail.com>
 %%%%
@@ -60,14 +60,32 @@
   %% Flexible vertical spacing
   %%
   %% Note: these are not scaled; they are in staff-spaces.
-  system-system-spacing = #'((basic-distance . 12) (minimum-distance . 8) (padding . 1) (stretchability . 60))
-  score-system-spacing = #'((basic-distance . 14) (minimum-distance . 8) (padding . 1) (stretchability . 120))
-  markup-system-spacing = #'((basic-distance . 5) (padding . 0.5) (stretchability . 30))
-  score-markup-spacing = #'((basic-distance . 12) (padding . 0.5) (stretchability . 60))
-  markup-markup-spacing = #'((basic-distance . 1) (padding . 0.5))
-  top-system-spacing = #'((basic-distance . 1) (minimum-distance . 0) (padding . 1))
-  top-markup-spacing = #'((basic-distance . 0) (minimum-distance . 0) (padding . 1))
-  last-bottom-spacing = #'((basic-distance . 1) (minimum-distance . 0) (padding . 1) (stretchability . 30))
+  system-system-spacing = #'((basic-distance . 12)
+                             (minimum-distance . 8)
+                             (padding . 1)
+                             (stretchability . 60))
+  score-system-spacing = #'((basic-distance . 14)
+                            (minimum-distance . 8)
+                            (padding . 1)
+                            (stretchability . 120))
+  markup-system-spacing = #'((basic-distance . 5)
+                             (padding . 0.5)
+                             (stretchability . 30))
+  score-markup-spacing = #'((basic-distance . 12)
+                            (padding . 0.5)
+                            (stretchability . 60))
+  markup-markup-spacing = #'((basic-distance . 1)
+                             (padding . 0.5))
+  top-system-spacing = #'((basic-distance . 1)
+                          (minimum-distance . 0)
+                          (padding . 1))
+  top-markup-spacing = #'((basic-distance . 0)
+                          (minimum-distance . 0)
+                          (padding . 1))
+  last-bottom-spacing = #'((basic-distance . 1)
+                           (minimum-distance . 0)
+                           (padding . 1)
+                           (stretchability . 30))
 
 
   %%
@@ -119,6 +137,7 @@
   first-page-number = #1
   print-first-page-number = ##f
   print-page-number = ##t
+  page-number-type = #'arabic
 
   %%
   %% Headers, footers, and titles

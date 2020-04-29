@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 2004--2012 Carl D. Sorensen <c_sorensen@byu.edu>
+;;;; Copyright (C) 2004--2015 Carl D. Sorensen <c_sorensen@byu.edu>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
 ;;;; it under the terms of the GNU General Public License as published by
@@ -44,7 +44,15 @@ to end-point."
 
 (define (get-numeric-from-key keystring)
   "Get the numeric value from a key of the form k:val"
-  (string->number (substring keystring 2 (string-length keystring))))
+  (let* ((entry (substring keystring 2 (string-length keystring)))
+         (numeric-entry (string->number entry)))
+    ;; throw an error, if `entry' can't be transformed into a number
+    (if numeric-entry
+        numeric-entry
+        (ly:error
+          "Unhandled entry in fret-diagram \"~a\" in \"~a\""
+          entry
+          keystring))))
 
 (define (numerify mylist)
   "Convert string values to numeric or character"
@@ -64,6 +72,41 @@ to end-point."
   "Calculate the fret count for the diagram given the range of frets in the diagram."
   (1+ (- (cdr fret-range) (car fret-range))))
 
+(define (dot-has-color dot-settings)
+  "Return a color-name as symbol, if found in @var{dot-settings} otherwise @code{#f}"
+  (cond ((null? dot-settings)
+         #f)
+        ;; Don't bother the user with quote/unquote.
+        ;; We use the name-symbol for the color, looking up in 'x11-color-list'
+        ((member (car dot-settings) (map car x11-color-list))
+         (car dot-settings))
+        (else (dot-has-color (cdr dot-settings)))))
+
+(define (dot-is-inverted dot-settings)
+  "Return @code{'inverted}, if found in @var{dot-settings} otherwise @code{'()}"
+  (let ((inverted (member 'inverted dot-settings)))
+    (if inverted
+        (car inverted)
+        '())))
+
+(define (dot-is-parenthesized dot-settings)
+  "Return @code{'parenthesized}, if found in @var{dot-settings} otherwise @code{'()}"
+  (let ((parenthesized (member 'parenthesized dot-settings)))
+    (if parenthesized
+        (car parenthesized)
+        '())))
+
+;; If @code{'default-paren-color} is not set, the parenthesis will take their
+;; color from the dot.
+;; Setting @code{'default-paren-color} will result in taking the color from
+;; `what-color', see below.
+(define (default-paren-color dot-settings)
+  "Return @code{'default-paren-color}, if found in @var{dot-settings} otherwise @code{'()}"
+  (let ((default-color (member 'default-paren-color dot-settings)))
+    (if default-color
+        (car default-color)
+        '())))
+
 (define (subtract-base-fret base-fret dot-list)
   "Subtract @var{base-fret} from every fret in @var{dot-list}"
   (if (null? dot-list)
@@ -71,18 +114,27 @@ to end-point."
       (let ((this-list (car dot-list)))
         (cons* (list
                 ;; string
-                (car this-list)
+                  (car this-list)
                 ;; fret
-                (- (second this-list) base-fret)
-                ;; finger
-                (if (null? (cddr this-list))
-                    '()
-                    (third this-list))
-                ;; color modifier
-                (if (or (null? (cddr this-list))
-                        (null? (cdddr this-list)))
-                    '()
-                    (fourth this-list)))
+                  (- (second this-list) base-fret)
+                ;; finger-number or markup
+                  (if (and (not (null? (cddr this-list)))
+                           (or (markup? (caddr this-list))
+                               (number? (caddr this-list))))
+                      (third this-list)
+                      '())
+                ;; inverted
+                  (dot-is-inverted this-list)
+                ;; parenthesis
+                  (dot-is-parenthesized this-list)
+                ;; color modifiers
+                  ;; parenthesis
+                  (default-paren-color this-list)
+                  ;; dots
+                  (let ((colored (dot-has-color this-list)))
+                    (if colored
+                        colored
+                        '())))
                (subtract-base-fret base-fret (cdr dot-list))))))
 
 (define (drop-paren item-list)
@@ -201,11 +253,18 @@ with magnification @var{mag} of the string @var{text}."
              ((or (eq? my-code 'open)(eq? my-code 'mute))
               (set! xo-list (cons* my-item xo-list)))
              ((eq? my-code 'barre)
-              (set! barre-list (cons* (cdr my-item) barre-list)))
+              (if (every number? (cdr my-item))
+                  (set! barre-list (cons* (cdr my-item) barre-list))
+                  (ly:error
+                    "barre-indications should contain only numbers: ~a"
+                    (cdr my-item))))
              ((eq? my-code 'capo)
               (set! capo-fret (cadr my-item)))
              ((eq? my-code 'place-fret)
-              (set! dot-list (cons* (cdr my-item) dot-list))))
+              (set! dot-list (cons* (cdr my-item) dot-list)))
+             (else (ly:warning
+                     "unknown fret diagram placement code: ~a"
+                     (object->string my-code))))
             (parse-item (cdr mylist)))))
     ;; calculate fret-range
     (let ((maxfret 0)
@@ -217,12 +276,16 @@ with magnification @var{mag} of the string @var{text}."
               (if (> fretval maxfret) (set! maxfret fretval))
               (if (< fretval minfret) (set! minfret fretval))
               (updatemax (cdr fret-list)))))
+      ;; take frets of 'barre-settings into account
+      (if (not (null? barre-list))
+          (set! minfret (apply min minfret (map last barre-list))))
       (if (or (> maxfret my-fret-count) (> capo-fret 1))
           (set! fret-range
                 (cons minfret
                       (let ((upfret (- (+ minfret my-fret-count) 1)))
                         (if (> maxfret upfret) maxfret upfret)))))
-      (set! capo-fret (1+ (- capo-fret minfret)))
+      (if (not (zero? (apply min capo-fret (map cadr dot-list))))
+          (set! capo-fret (1+ (- capo-fret minfret))))
       ;; subtract fret from dots
       (set! dot-list (subtract-base-fret (- (car fret-range) 1) dot-list)))
     (acons 'fret-range fret-range
@@ -242,6 +305,10 @@ with magnification @var{mag} of the string @var{text}."
          ;;TODO -- get string-count directly from length of stringTunings;
          ;;         from FretBoard engraver, but not from markup call
          (details (merge-details 'fret-diagram-details props '()))
+         (fret-distance
+          (assoc-get 'fret-distance details 1.0))
+         (string-distance
+          (assoc-get 'string-distance details 1.0))
          (string-count
           (assoc-get 'string-count details 6)) ;; needed for everything
          (my-fret-count
@@ -271,6 +338,7 @@ with magnification @var{mag} of the string @var{text}."
          ;; needed for draw-frets and draw-strings
          (sth (* size th))
          (thickness-factor (assoc-get 'string-thickness-factor details 0))
+         (paren-padding (assoc-get 'paren-padding details 0.05))
          (alignment
           (chain-assoc-get 'align-dir props -0.4)) ;; needed only here
          (xo-padding (assoc-get 'xo-padding details 0.2)) ;; needed only here
@@ -345,17 +413,17 @@ baseline at fret coordinate @var{base}, a height of
                bottom-control-point-height cp-right-width)))
 
         ;; order of bezier control points is:
-        ;;    left cp low, right cp low, right end low, left end low
-        ;;   right cp high, left cp high, left end high, right end high.
+        ;;   left cp low, left cp low, right cp low, right end low
+        ;;   right cp high, left cp high
 
-        (list left-lower-control-point
+        (list
+              left-end-point
+              left-lower-control-point
               right-lower-control-point
               right-end-point
-              left-end-point
+
               right-upper-control-point
-              left-upper-control-point
-              left-end-point
-              right-end-point)))
+              left-upper-control-point)))
 
     (define (draw-strings)
       "Draw the string lines for a fret diagram with
@@ -370,7 +438,7 @@ Line thickness is given by @var{th}, fret & string spacing by
              (string-stencil (car x))
              (helper (cdr x)))))
 
-      (let* ( (string-list (map 1+ (iota string-count))))
+      (let* ((string-list (map 1+ (iota string-count))))
         (helper string-list)))
 
     (define (string-stencil string)
@@ -384,11 +452,13 @@ Line thickness is given by @var{th}, fret & string spacing by
              (start-coordinates
               (stencil-coordinates
                (- fret-half-thickness)
-               (- (* size string-coordinate) half-string)))
+               (- (* size string-distance string-coordinate) half-string)))
              (end-coordinates
               (stencil-coordinates
-               (+ fret-half-thickness (* size (1+ (fret-count fret-range))))
-               (+ half-string (* size string-coordinate)))))
+               (+ fret-half-thickness
+                  (* size fret-distance (1+ (fret-count fret-range))))
+               (+ half-string
+                  (* size string-distance string-coordinate)))))
         (ly:round-filled-box
          (string-x-extent start-coordinates end-coordinates)
          (string-y-extent start-coordinates end-coordinates)
@@ -420,12 +490,12 @@ fret-diagram overall parameters."
              (fret-half-thickness (* 0.5 size th))
              (start-coordinates
               (stencil-coordinates
-               (* size fret)
+               (* fret-distance size fret)
                (- fret-half-thickness low-string-half-thickness)))
              (end-coordinates
               (stencil-coordinates
-               (* size fret)
-               (* size (1- string-count)))))
+               (* fret-distance size fret)
+               (* size string-distance (1- string-count)))))
         (make-line-stencil
          (* size th)
          (car start-coordinates) (cdr start-coordinates)
@@ -477,12 +547,12 @@ fret-diagram overall parameters."
       "Create a straight barre stencil."
       (let ((start-point
              (stencil-coordinates
-              (* size fret-coordinate)
-              (* size start-string-coordinate)))
+              (* size fret-distance fret-coordinate)
+              (* size string-distance start-string-coordinate)))
             (end-point
              (stencil-coordinates
-              (* size fret-coordinate)
-              (* size end-string-coordinate))))
+              (* size fret-distance fret-coordinate)
+              (* size string-distance end-string-coordinate))))
         (make-line-stencil
          half-thickness
          (car start-point)
@@ -500,35 +570,21 @@ fret-diagram overall parameters."
              (bezier-height 0.5)
              (bezier-list
               (make-bezier-sandwich-list
-               (* size start-string-coordinate)
-               (* size end-string-coordinate)
-               (* size fret-coordinate)
+               (* size string-distance start-string-coordinate)
+               (* size string-distance end-string-coordinate)
+               (* size fret-distance fret-coordinate)
                (* size bezier-height)
-               (* size bezier-thick)))
-             (box-lower-left
-              (stencil-coordinates
-               (+ (* size fret-coordinate) half-thickness)
-               (- (* size start-string-coordinate) half-thickness)))
-             (box-upper-right
-              (stencil-coordinates
-               (- (* size fret-coordinate)
-                  (* size bezier-height)
-                  half-thickness)
-               (+ (* size end-string-coordinate) half-thickness)))
-             (x-extent (cons (car box-lower-left) (car box-upper-right)))
-             (y-extent (cons (cdr box-lower-left) (cdr box-upper-right))))
+               (* size bezier-thick))))
         (make-bezier-sandwich-stencil
          bezier-list
-         (* size bezier-thick)
-         x-extent
-         y-extent)))
+         (* size bezier-thick))))
 
     (define (draw-dots dot-list)
       "Make dots for fret diagram."
 
       (let* ( (scale-dot-radius (* size dot-radius))
               (scale-dot-thick (* size th))
-              (default-dot-color (assoc-get 'dot-color details 'black))
+              (default-dot-color (assoc-get 'dot-color details))
               (finger-label-padding 0.3)
               (dot-label-font-mag
                (* scale-dot-radius
@@ -545,46 +601,126 @@ fret-diagram overall parameters."
               (restlist (cdr dot-list))
               (string (car mypair))
               (fret (cadr mypair))
-              (fret-coordinate (* size (+ (1- fret) dot-position)))
-              (string-coordinate (* size (- string-count string)))
+              (fret-coordinate
+               (* size fret-distance (+ (1- fret) dot-position)))
+              (string-coordinate
+               (* size string-distance (- string-count string)))
               (dot-coordinates
                (stencil-coordinates fret-coordinate string-coordinate))
               (extent (cons (- scale-dot-radius) scale-dot-radius))
               (finger (caddr mypair))
               (finger (if (number? finger) (number->string finger) finger))
-              (inverted-color (eq? 'inverted (cadddr mypair)))
-              (dot-color (if (or (and (eq? default-dot-color 'black) inverted-color)
-                                 (and (eq? default-dot-color 'white) (not inverted-color)))
-                             'white
-                             'black))
-              (dot-stencil (if (eq? dot-color 'white)
-                               (ly:stencil-add
-                                (make-circle-stencil
-                                 scale-dot-radius scale-dot-thick #t)
-                                (ly:stencil-in-color
-                                 (make-circle-stencil
-                                  (- scale-dot-radius (* 0.5 scale-dot-thick))
-                                  0  #t)
-                                 1 1 1))
-                               (make-circle-stencil
-                                scale-dot-radius scale-dot-thick #t)))
+              (parenthesized
+                (if (not (null? (dot-is-parenthesized mypair)))
+                    (dot-is-parenthesized mypair)
+                    #f))
+              (parenthesis-color
+                (if (not (null? (default-paren-color mypair)))
+                    (default-paren-color mypair)
+                    #f))
+              (inverted
+                (if (not (null? (dot-is-inverted mypair)))
+                    (dot-is-inverted mypair)
+                    #f))
+              (dot-color-is-white?
+                (or inverted
+                    (and (eq? default-dot-color 'white) (not inverted))))
+              (what-color
+                (x11-color
+                  (cond ((and inverted
+                              (not (dot-has-color mypair))
+                              (not (eq? default-dot-color 'white)))
+                          (or default-dot-color 'black))
+                        (dot-color-is-white?
+                          (or (dot-has-color mypair) 'black))
+                        (else
+                          (or (dot-has-color mypair)
+                              default-dot-color
+                              'black)))))
+              (inverted-stil
+                (lambda (color)
+                  (ly:stencil-add
+                    (stencil-with-color
+                      (make-circle-stencil
+                        scale-dot-radius scale-dot-thick #t)
+                      color)
+                    (stencil-with-color
+                      (make-circle-stencil
+                        (- scale-dot-radius (* 0.5 scale-dot-thick))
+                        0  #t)
+                      (x11-color 'white)))))
+              (dot-stencil
+                (if dot-color-is-white?
+                    (inverted-stil what-color)
+                    (stencil-with-color
+                      (make-circle-stencil
+                         scale-dot-radius scale-dot-thick #t)
+                      what-color)))
+              (par-dot-stencil
+                (let ((paren-color
+                        (if (and parenthesis-color
+                                 (not (eq? default-dot-color 'white)))
+                            (x11-color (or default-dot-color 'black))
+                            what-color)))
+                 (stencil-with-color
+                   (parenthesize-stencil
+                     dot-stencil      ;; stencil
+                     (* size th 0.75) ;; half-thickness
+                     (* 0.15 size)    ;;width
+                     0                ;; angularity
+                     paren-padding    ;; padding
+                     )
+                   paren-color)))
+              (final-dot-stencil
+                  (if parenthesized
+                      par-dot-stencil
+                      dot-stencil))
               (positioned-dot
-               (ly:stencil-translate dot-stencil dot-coordinates))
+               (ly:stencil-translate final-dot-stencil dot-coordinates))
               (labeled-dot-stencil
                (cond
                 ((or (eq? finger '())(eq? finger-code 'none))
                  positioned-dot)
                 ((eq? finger-code 'in-dot)
-                 (let ((finger-label
-                        (centered-stencil
-                         (sans-serif-stencil
-                          layout props dot-label-font-mag finger))))
+                 (let* ((finger-stil
+                          (if (not (null? finger))
+                              (sans-serif-stencil
+                                 layout props dot-label-font-mag finger)
+                              empty-stencil))
+                        (finger-stil-length
+                          (interval-length (ly:stencil-extent finger-stil X)))
+                        (finger-stil-height
+                          (interval-length (ly:stencil-extent finger-stil Y)))
+                        (dot-stencil-radius
+                          (/ (interval-length (ly:stencil-extent dot-stencil Y))
+                             2))
+                        (scale-factor
+                          (/ dot-stencil-radius
+                             ;; Calculate the radius of the circle through the
+                             ;; corners of the box containing the finger-stil.
+                             ;; Give it a little padding. The value, (* 2 th),
+                             ;; is my choice
+                             (+
+                               (sqrt
+                                  (+ (expt (/ finger-stil-length 2) 2)
+                                     (expt (/ finger-stil-height 2) 2)))
+                                (* 2 th))))
+                        (finger-label
+                         (centered-stencil
+                          (ly:stencil-scale
+                           (sans-serif-stencil
+                            layout props
+                            dot-label-font-mag
+                            finger)
+                           scale-factor scale-factor))))
                    (ly:stencil-translate
                     (ly:stencil-add
-                     dot-stencil
-                     (if (eq? dot-color 'white)
-                         finger-label
-                         (ly:stencil-in-color finger-label 1 1 1)))
+                     final-dot-stencil
+                     (if dot-color-is-white?
+                         (stencil-with-color
+                            finger-label
+                            what-color)
+                         (stencil-with-color finger-label white)))
                     dot-coordinates)))
                 ((eq? finger-code 'below-string)
                  (let* ((label-stencil
@@ -596,8 +732,19 @@ fret-diagram overall parameters."
                          (stencil-fretboard-offset
                           label-stencil 'fret orientation))
                         (label-fret-coordinate
-                         (+ (* size
-                               (+ 1 my-fret-count finger-label-padding))
+                         ;; (1) Move the below-string-finger-codes to the bottom
+                         ;;     edge of the string, i.e.
+                         ;;       (* (1+  my-fret-count) fret-distance)
+                         ;; (2) add `finger-label-padding' (a hardcoded
+                         ;;     correction-value to get a bit default padding).
+                         ;;     TODO: make it a property?
+                         ;; (3) scale this with `size'
+                         ;; (4) add `label-fret-offset', to get the final
+                         ;;     padding
+                         (+
+                            (* size
+                               (+ (* (1+  my-fret-count) fret-distance)
+                                  finger-label-padding))
                             label-fret-offset))
                         (label-string-coordinate string-coordinate)
                         (label-translation
@@ -625,7 +772,8 @@ fret-diagram overall parameters."
              (top-fret-thick
               (* sth (assoc-get 'top-fret-thickness details 3.0)))
              (start-string-coordinate (- half-lowest-string-thickness))
-             (end-string-coordinate (+ (* size (1- string-count)) half-thick))
+             (end-string-coordinate
+                 (+ (* size string-distance (1- string-count)) half-thick))
              (start-fret-coordinate half-thick)
              (end-fret-coordinate (- half-thick top-fret-thick))
              (lower-left
@@ -654,7 +802,8 @@ fret-diagram overall parameters."
              (glyph-string (if (eq? (car mypair) 'mute)
                                (assoc-get 'mute-string details "X")
                                (assoc-get 'open-string details "O")))
-             (glyph-string-coordinate (* (- string-count (cadr mypair)) size))
+             (glyph-string-coordinate
+              (* (- string-count (cadr mypair)) string-distance size))
              (glyph-stencil
               (centered-stencil
                (sans-serif-stencil
@@ -679,14 +828,14 @@ at @var{fret}."
              (half-thick (* capo-thick 0.5))
              (last-string-position 0)
              (first-string-position (* size (- string-count 1)))
-             (fret-position ( * size (1- (+ dot-position fret))))
+             (fret-position (* size (1- (+ dot-position fret))))
              (start-point
               (stencil-coordinates
-               fret-position
-               first-string-position))
+               (* fret-distance fret-position)
+               (* string-distance first-string-position)))
              (end-point
               (stencil-coordinates
-               fret-position
+               (* fret-distance fret-position)
                last-string-position)))
         (make-line-stencil
          capo-thick
@@ -701,22 +850,14 @@ at @var{fret}."
              (label-dir (assoc-get 'label-dir details RIGHT))
              (label-vertical-offset
               (assoc-get 'fret-label-vertical-offset details 0))
+             (label-horizontal-offset
+              (assoc-get 'fret-label-horizontal-offset details 0))
              (number-type
               (assoc-get 'number-type details 'roman-lower))
              (label-text
-              (cond
-               ((equal? number-type 'roman-lower)
-                (fancy-format #f "~(~@r~)" base-fret))
-               ((equal? number-type 'roman-upper)
-                (fancy-format #f "~@r" base-fret))
-               ((equal? 'arabic number-type)
-                (fancy-format #f "~d" base-fret))
-               ((equal? 'custom number-type)
-                (fancy-format #f
-                              (assoc-get 'fret-label-custom-format
-                                         details "~a")
-                              base-fret))
-               (else (fancy-format #f "~(~@r~)" base-fret))))
+              (number-format number-type base-fret
+                             (assoc-get 'fret-label-custom-format
+                                         details "~a")))
              (label-stencil
               (centered-stencil
                (sans-serif-stencil
@@ -726,14 +867,18 @@ at @var{fret}."
                label-stencil
                'string
                orientation))
-             (label-outside-diagram (+ label-space label-half-width)))
+             (label-outside-diagram
+               (+ label-space
+                  (* size label-horizontal-offset)
+                  label-half-width)))
         (ly:stencil-translate
          label-stencil
          (stencil-coordinates
-          (* size (+ 1.0 label-vertical-offset))
-          (if (eq? label-dir LEFT)
+          (* size fret-distance (1+ label-vertical-offset))
+          (if (eqv? label-dir LEFT)
               (- label-outside-diagram)
-              (+ (* size (1- string-count)) label-outside-diagram))))))
+              (+ (* size string-distance (1- string-count))
+                 label-outside-diagram))))))
 
     ;; Here is the body of make-fret-diagram
 
@@ -802,7 +947,9 @@ a fret-indication list with the appropriate values"
          (output-list '())
          (new-props '())
          (details (merge-details 'fret-diagram-details props '()))
-         (items (string-split definition-string #\;)))
+         ;; remove whitespace-characters from definition-string
+         (cleared-string (remove-whitespace definition-string))
+         (items (string-split cleared-string #\;)))
     (let parse-item ((myitems items))
       (if (not (null? (cdr myitems)))
           (let ((test-string (car myitems)))
@@ -838,7 +985,15 @@ a fret-indication list with the appropriate values"
                        (set! details
                              (acons 'dot-position dot-position details))))
               (else
-               (let ((this-list (string-split test-string #\-)))
+               (let* ((this-list (string-split test-string #\-))
+                      (fret-number (string->number (car this-list))))
+                 ;; If none of the above applies, `fret-number' needs to be a
+                 ;; number. Throw an error, if not.
+                 (if (not fret-number)
+                   (ly:error
+                     "Unhandled entry in fret-diagrams \"~a\" in \"~a\""
+                     (car this-list)
+                     test-string))
                  (if (string->number (cadr this-list))
                      (set! output-list
                            (cons-fret
@@ -847,17 +1002,17 @@ a fret-indication list with the appropriate values"
                      (if (equal? (cadr this-list) "x" )
                          (set! output-list
                                (cons-fret
-                                (list 'mute (string->number (car this-list)))
+                                (list 'mute fret-number)
                                 output-list))
                          (set! output-list
                                (cons-fret
-                                (list 'open (string->number (car this-list)))
+                                (list 'open fret-number)
                                 output-list)))))))
             (parse-item (cdr myitems)))))
     ;; add the modified details
     (set! props
           (prepend-alist-chain 'fret-diagram-details details props))
-    `(,props . ,output-list))) ;ugh -- hard-coded spell -- procedure better
+    (cons props output-list)))
 
 (define-public
   (fret-parse-terse-definition-string props definition-string)
@@ -898,14 +1053,17 @@ a fret-indication list with the appropriate values"
                                 (list-head this-list max-element-index))))
                     (if (equal? last-element ")")
                         (let* ((this-barre
-                                (get-sub-list fret barre-start-list))
-                               (insert-index (- (length this-barre) 1)))
-                          (set! output-list
+                                (get-sub-list fret barre-start-list)))
+                          (if (not this-barre)
+                            (ly:warning
+                              "Ignoring barre end without beginning on fret: ~a"
+                              fret)
+                            (set! output-list
                                 (cons-fret (cons* 'barre
                                                   (car this-barre)
                                                   current-string
                                                   (cdr this-barre))
-                                           output-list))
+                                           output-list)))
                           (set! this-list
                                 (list-head this-list max-element-index))))
                     (if (number? fret)
@@ -931,7 +1089,7 @@ a fret-indication list with the appropriate values"
             (parse-item (cdr myitems)))))
     (set! details (acons 'string-count string-count details))
     (set! props (prepend-alist-chain 'fret-diagram-details details props))
-    `(,props . ,output-list))) ; ugh -- hard coded; proc is better
+    (cons props output-list)))
 
 
 (define-markup-command
@@ -973,14 +1131,24 @@ Place a capo indicator (a large solid bar) across the entire fretboard
 at fret location @var{fret-number}.  Also, set fret @var{fret-number}
 to be the lowest fret on the fret diagram.
 
-@item (place-fret @var{string-number} @var{fret-number} [@var{finger-value} [@var{color-modifier}]])
+@item (place-fret @var{string-number} @var{fret-number} [@var{finger-value}] [@var{color-modifier}] [@var{color}] ['parenthesized ['default-paren-color]])
 Place a fret playing indication on string @var{string-number} at fret
 @var{fret-number} with an optional fingering label @var{finger-value},
-and an optional color modifier @var{color-modifier}.
+an optional color modifier @var{color-modifier}, an optional color
+@var{color}, an optional parenthesis @code{'parenthesized} and an
+optional paranthesis color @code{'default-paren-color}.
 By default, the fret playing indicator is a solid dot.  This can be
-globally changed by setting the value of the variable @var{dot-color}.
+globally changed by setting the value of the variable @var{dot-color}
+or for a single dot by setting the value of @var{color}.  The dot can
+be parenthesized by adding @code{'parenthesized}.  By default the
+color for the parenthesis is taken from the dot.  Adding
+@code{'default-paren-color} will take the parenthesis-color from the
+global @var{dot-color}, as a fall-back black will be used.
 Setting @var{color-modifier} to @code{inverted} inverts the dot color
 for a specific fingering.
+The values for @var{string-number}, @var{fret-number}, and the optional
+@var{finger} should be entered first in that order.
+The order of the other optional arguments does not matter.
 If the @var{finger} part of the @code{place-fret} element is present,
 @var{finger-value} will be displayed according to the setting of the
 variable @var{finger-code}.  There is no limit to the number of fret

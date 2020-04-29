@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; (c) 1998--2012 Han-Wen Nienhuys <hanwen@xs4all.nl>
+;;;; (c) 1998--2015 Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;;                 Jan Nieuwenhuizen <janneke@gnu.org>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
@@ -39,55 +39,49 @@ way the transposition number is displayed."
 ;; metronome marks
 
 (define-public (format-metronome-markup event context)
-  (let ((hide-note (ly:context-property context 'tempoHideNote #f))
-        (text (ly:event-property event 'text))
-        (dur (ly:event-property event 'tempo-unit))
-        (count (ly:event-property event 'metronome-count)))
+   (let ((hide-note (ly:context-property context 'tempoHideNote #f))
+         (text (ly:event-property event 'text))
+         (dur (ly:event-property event 'tempo-unit))
+         (count (ly:event-property event 'metronome-count)))
+   (metronome-markup text dur count hide-note)))
+(export format-metronome-markup)
 
-    (metronome-markup text dur count hide-note)))
-
-(define-public (metronome-markup text dur count hide-note)
-  (let* ((note-mark (if (and (not hide-note) (ly:duration? dur))
-                        (make-smaller-markup
-                         (make-note-by-number-markup (ly:duration-log dur)
-                                                     (ly:duration-dot-count dur)
-                                                     1))
-                        #f))
+(define (metronome-markup text dur count hide-note)
+  (let* ((note-mark
+            (if (and (not hide-note) (ly:duration? dur))
+                (make-smaller-markup
+                  (make-note-by-number-markup
+                    (ly:duration-log dur)
+                    (ly:duration-dot-count dur)
+                    UP))
+                #f))
          (count-markup (cond ((number? count)
                               (if (> count 0)
-                                  (make-simple-markup (number->string count))
+                                  (make-simple-markup
+                                          (number->string count))
                                   #f))
                              ((pair? count)
-                              (make-concat-markup
-                               (list
-                                (make-simple-markup (number->string (car count)))
-                                (make-simple-markup " ")
-                                (make-simple-markup "–")
-                                (make-simple-markup " ")
-                                (make-simple-markup (number->string (cdr count))))))
+                                ;; Thin Spaces U+2009 & En-dash U+2013
+                                (make-simple-markup
+                                  (ly:format "~a – ~a" (car count) (cdr count))))
                              (else #f)))
          (note-markup (if (and (not hide-note) count-markup)
-                          (make-concat-markup
                            (list
                             (make-general-align-markup Y DOWN note-mark)
-                            (make-simple-markup " ")
-                            (make-simple-markup "=")
-                            (make-simple-markup " ")
-                            count-markup))
+                            (make-simple-markup " = ")
+                            count-markup)
                           #f))
-         (text-markup (if (not (null? text))
-                          (make-bold-markup text)
-                          #f)))
+         (text-markup (if (not (null? text)) (make-bold-markup text) #f)))
     (if text-markup
         (if (and note-markup (not hide-note))
-            (make-line-markup (list text-markup
-                                    (make-concat-markup
-                                     (list (make-simple-markup "(")
-                                           note-markup
-                                           (make-simple-markup ")")))))
+            (make-line-markup (list (make-concat-markup
+                                     (append (list text-markup
+                                              (make-simple-markup " ("))
+                                             note-markup
+                                             (list (make-simple-markup ")"))))))
             (make-line-markup (list text-markup)))
         (if note-markup
-            (make-line-markup (list note-markup))
+            (make-line-markup (list (make-concat-markup note-markup)))
             (make-null-markup)))))
 
 (define-public (format-mark-alphabet mark context)
@@ -242,7 +236,9 @@ Will look for predefined fretboards if @code{predefinedFretboardTable}
 is not @code {#f}.  If @var{rest} is present, it contains the
 @code{FretBoard} grob, and a fretboard will be
 created.  Otherwise, a list of @code{(string fret finger)} lists will
-be returned."
+be returned.
+If the context-property @code{supportNonIntegerFret} is set @code{#t},
+micro-tones are supported for TabStaff, but not not for FretBoards."
 
   ;;  helper functions
 
@@ -351,7 +347,11 @@ notes?"
         (and (or (and (not restrain-open-strings)
                       (zero? fret))
                  (>= fret minimum-fret))
-             (integer? fret)
+             (if (and
+                   (ly:context-property context 'supportNonIntegerFret #f)
+                   (null? rest))
+                 (integer? (truncate fret))
+                 (integer? fret))
              (close-enough fret))))
 
     (define (open-string string pitch)
@@ -367,7 +367,9 @@ the current tuning?"
         (if (< this-fret 0)
             (ly:warning (_ "Negative fret for pitch ~a on string ~a")
                         (car pitch-entry) string)
-            (if (not (integer? this-fret))
+            (if (and
+                  (not (integer? this-fret))
+                  (not (ly:context-property context 'supportNonIntegerFret #f)))
                 (ly:warning (_ "Missing fret for pitch ~a on string ~a")
                             (car pitch-entry) string)))
         (delete-free-string string)
@@ -414,13 +416,21 @@ the current tuning?"
                          (ly:warning (_ "No open string for pitch ~a")
                                      pitch)))
                    ;; here we handle assigned strings
-                   (let ((this-fret
-                          (calc-fret pitch string tuning))
-                         (handle-negative
-                          (ly:context-property context
-                                               'handleNegativeFrets
-                                               'recalculate)))
-                     (cond ((or (and (>= this-fret 0) (integer? this-fret))
+                   (let* ((this-fret
+                           (calc-fret pitch string tuning))
+                          (possible-fret?
+                           (and (>= this-fret 0)
+                                (if (and
+                                      (ly:context-property
+                                        context 'supportNonIntegerFret #f)
+                                      (null? rest))
+                                    (integer? (truncate this-fret))
+                                    (integer? this-fret))))
+                          (handle-negative
+                           (ly:context-property context
+                                                'handleNegativeFrets
+                                                'recalculate)))
+                     (cond ((or possible-fret?
                                 (eq? handle-negative 'include))
                             (set-fret! pitch-entry string finger))
                            ((eq? handle-negative 'recalculate)
@@ -502,10 +512,18 @@ chords.  Returns a placement-list."
                  (cons tuning (map (lambda (x) (shift-octave x -1))
                                    pitches))))))))
 
+  ;; TODO: Does it make sense to have additional bass strings in a fret-diagram?
+  (if (and (not (null? rest))
+           (not (null? (ly:context-property context 'additionalBassStrings))))
+      (ly:warning "additional bass strings are not supported by FretBoards"))
+
   ;; body of determine-frets
   (let* ((predefined-fret-table
           (ly:context-property context 'predefinedDiagramTable))
-         (tunings (ly:context-property context 'stringTunings))
+         (tunings
+           (append
+             (ly:context-property context 'stringTunings)
+             (ly:context-property context 'additionalBassStrings '())))
          (string-count (length tunings))
          (grob (if (null? rest) '() (car rest)))
          (pitches (map (lambda (x) (ly:event-property x 'pitch)) notes))
@@ -563,24 +581,56 @@ chords.  Returns a placement-list."
 ;; The fret letter is taken from 'fretLabels if present
 (define-public (fret-letter-tablature-format
                 context string-number fret-number)
-  (let ((labels (ly:context-property context 'fretLabels)))
-    (make-vcenter-markup
-     (cond
-      ((= 0 (length labels))
-       (string (integer->char (+ fret-number (char->integer #\a)))))
-      ((and (<= 0 fret-number) (< fret-number (length labels)))
-       (list-ref labels fret-number))
-      (else
-       (ly:warning (_ "No label for fret ~a (on string ~a);
+  (let* ((labels (ly:context-property context 'fretLabels))
+         (string-tunings (ly:context-property context 'stringTunings))
+         (string-count (length string-tunings))
+         (letter
+           (cond
+            ((= 0 (length labels))
+             (string (integer->char (+ fret-number (char->integer #\a)))))
+            ((and (<= 0 fret-number) (< fret-number (length labels)))
+             (list-ref labels fret-number))
+            (else
+             (ly:warning
+               (_ "No label for fret ~a (on string ~a);
 only ~a fret labels provided")
-                   fret-number string-number (length labels))
-       ".")))))
+               fret-number string-number (length labels))
+             ".")))
+         (add-bass-string-nr ;; starting at zero
+           (- string-number string-count 1)))
+    (make-translate-scaled-markup '(0 . -0.5)
+      ;; For additional bass strings, we add zero up to three "/"-signs before
+      ;; the letter, even more bass strings will get numbers, starting with "4".
+      ;; In the rare case such a string isn't played open, we put out, eg."4b"
+      (make-concat-markup
+        (if (> string-number (+ string-count 4))
+            (list (number->string add-bass-string-nr)
+                  (if (zero? fret-number) "" letter))
+            (list (make-string (max 0 add-bass-string-nr) #\/)
+                  letter))))))
 
 ;; Display the fret number as a number
 (define-public (fret-number-tablature-format
                 context string-number fret-number)
-  (make-vcenter-markup
-   (format #f "~a" fret-number)))
+  (if (integer? fret-number)
+      (make-vcenter-markup
+        (format #f "~a" fret-number))
+      ;; for non-integer fret-number print p.e. "2½"
+      (let* ((whole-part (truncate fret-number))
+             (remaining (- fret-number whole-part))
+             (fret
+               (if (and (zero? whole-part) (not (zero? remaining)))
+                   ""
+                   (format #f "~a" whole-part)))
+             (frac
+               (if (zero? remaining)
+                   ""
+                   (format #f "~a" remaining))))
+        (make-concat-markup
+          (list (make-vcenter-markup fret)
+                (make-vcenter-markup
+                  ;; the value `-2.5' is my choice
+                  (make-fontsize-markup -2.5 frac)))))))
 
 ;; The 5-string banjo has got an extra string, the fifth (duh), which
 ;; starts at the fifth fret on the neck.  Frets on the fifth string
@@ -605,8 +655,12 @@ only ~a fret labels provided")
 (define-public (tablature-position-on-lines context string-number)
   (let* ((string-tunings (ly:context-property context 'stringTunings))
          (string-count (length string-tunings))
+         (string-nr
+           (if (> string-number (length string-tunings))
+               (1+ (length string-tunings))
+               string-number))
          (string-one-topmost (ly:context-property context 'stringOneTopmost))
-         (staff-line (- (* 2 string-number) string-count 1)))
+         (staff-line (- (* 2 string-nr) string-count 1)))
     (if string-one-topmost
         (- staff-line)
         staff-line)))
@@ -614,16 +668,19 @@ only ~a fret labels provided")
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; bar numbers
 
-(define-public ((every-nth-bar-number-visible n) barnum mp)
+(define ((every-nth-bar-number-visible n) barnum mp)
   (= 0 (modulo barnum n)))
+(export every-nth-bar-number-visible)
 
-(define-public ((modulo-bar-number-visible n m) barnum mp)
+(define ((modulo-bar-number-visible n m) barnum mp)
   (and (> barnum 1) (= m (modulo barnum n))))
+(export modulo-bar-number-visible)
 
-(define-public ((set-bar-number-visibility n) tr)
+(define ((set-bar-number-visibility n) tr)
   (let ((bn (ly:context-property tr 'currentBarNumber)))
     (ly:context-set-property! tr 'barNumberVisibility
                               (modulo-bar-number-visible n (modulo bn n)))))
+(export set-bar-number-visibility)
 
 (define-public (first-bar-number-invisible barnum mp)
   (> barnum 1))
@@ -668,43 +725,71 @@ only ~a fret labels provided")
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; percent repeat counters
 
-(define-public ((every-nth-repeat-count-visible n) count context)
+(define ((every-nth-repeat-count-visible n) count context)
   (= 0 (modulo count n)))
+(export every-nth-repeat-count-visible)
 
 (define-public (all-repeat-counts-visible count context) #t)
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;; make-engraver helper macro
+;; pitch recognition
 
-(defmacro-public make-engraver forms
-  "Helper macro for creating Scheme engravers.
+(define-public (make-semitone->pitch pitches)
+  "Convert @var{pitches}, an unordered list of note values
+covering (after disregarding octaves) all absolute pitches in need of
+conversion, into a function converting semitone numbers (absolute
+pitch missing enharmonic information) back into note values.
 
-The usual form for an engraver is an association list (or alist)
-mapping symbols to either anonymous functions or to another such
-alist.
+For a key signature without accidentals
+@example
+c cis d es e f fis g gis a bes b
+@end example
+might be a good choice, covering Bb major to A major and their
+parallel keys, and melodic/harmonic C minor to A minor."
+  ;; TODO: short-circuit lcm calculation once we know it will be large
+  (let* ((size (apply lcm (map (lambda (pitch)
+                                 (denominator (/ (ly:pitch-tones pitch) 6)))
+                               pitches)))
+         ;; Normal tunings need 12 steps per octave, quartertone
+         ;; tunings 24, Makam needs 108.  But microtunings might cause
+         ;; trouble.
+         (lookup (if (> size 400)
+                     (make-hash-table)
+                     (make-vector size #f))))
+    (for-each
+     (lambda (pitch)
+       (let* ((rawoct (/ (ly:pitch-tones pitch) 6))
+              (oct (floor rawoct))
+              (ref (- rawoct oct))
+              (val (ly:pitch-transpose pitch
+                                       (ly:make-pitch (- oct) 0))))
+         (if (hash-table? lookup)
+             (hashv-set! lookup ref val)
+             (vector-set! lookup (* size ref) val))))
+     pitches)
+    (lambda (semitone)
+      "Convert @var{semitone} numbers into note values.  If the
+originally specified list of pitches does not contain a note
+corresponding to @var{semitone} (disregarding octaves), @code{#f} is
+returned."
+      (let* ((rawoct (/ semitone 12))
+             (oct (floor rawoct))
+             (ref (- rawoct oct))
+             (val (if (hash-table? lookup)
+                      (hashv-ref lookup ref)
+                      (let ((ref (* (vector-length lookup) ref)))
+                        (and (integer? ref)
+                             (vector-ref lookup ref))))))
+        (and val
+             (ly:pitch-transpose val (ly:make-pitch oct 0)))))))
 
-@code{make-engraver} accepts forms where the first element is either
-an argument list starting with the respective symbol, followed by the
-function body (comparable to the way @code{define} is used for
-defining functions), or a single symbol followed by subordinate forms
-in the same manner.  You can also just make an alist pair
-literally (the @samp{car} is quoted automatically) as long as the
-unevaluated @samp{cdr} is not a pair.  This is useful if you already
-have defined your engraver functions separately.
+(define ((shift-semitone->pitch key semitone->pitch) semitone)
+  "Given a function @var{semitone->pitch} converting a semitone number
+into a note value for a lookup table created in relation to@tie{}C,
+returns a corresponding function in relation to @var{key}.  The note
+values returned by this function differ only enharmonically from the
+original @var{semitone->pitch} function."
+  (ly:pitch-transpose (semitone->pitch (- semitone (* 2 (ly:pitch-tones key))))
+                      key))
 
-Symbols mapping to a function would be @code{initialize},
-@code{start-translation-timestep}, @code{process-music},
-@code{process-acknowledged}, @code{stop-translation-timestep}, and
-@code{finalize}.  Symbols mapping to another alist specified in the
-same manner are @code{listeners} with the subordinate symbols being
-event classes, and @code{acknowledgers} and @code{end-acknowledgers}
-with the subordinate symbols being interfaces."
-  (let loop ((forms forms))
-    (if (cheap-list? forms)
-        `(list
-          ,@(map (lambda (form)
-                   (if (pair? (car form))
-                       `(cons ',(caar form) (lambda ,(cdar form) ,@(cdr form)))
-                       `(cons ',(car form) ,(loop (cdr form)))))
-                 forms))
-        forms)))
+(export shift-semitone->pitch)

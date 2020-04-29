@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 2000--2012 Han-Wen Nienhuys <hanwen@xs4all.nl>
+;;;; Copyright (C) 2000--2015 Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;;                 Jan Nieuwenhuizen <janneke@gnu.org>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
@@ -19,6 +19,9 @@
 (use-modules (oop goops)
              (srfi srfi-13)
              (srfi srfi-1))
+
+(if (guile-v2)
+    (use-modules (ice-9 curried-definitions)))
 
 (define-class <texi-node> ()
   (appendix #:init-value #f #:accessor appendix? #:init-keyword #:appendix)
@@ -48,8 +51,7 @@
     "\n\n"
     (if (pair? (node-children node))
         (texi-menu
-         (map (lambda (x) (menu-entry x))
-              (node-children node)))
+         (map menu-entry (node-children node)))
         ""))
    port)
   (for-each (lambda (x) (dump-node x port (+ 1 level)))
@@ -58,16 +60,15 @@
 (define (processing name)
   (ly:basic-progress (_ "Processing ~S...") name))
 
-(define (self-evaluating? x)
-  (or (number? x) (string? x) (procedure? x) (boolean? x)))
-
-(define (texify x)
-  x)
-
-(define (scm->texi x)
-  (string-append "@code{" (texify (scm->string x)) "}"))
-
-
+(define (scm->texi val)
+  (let* (; always start on a new line
+         (open-texi (if (pretty-printable? val)
+                      "\n@verbatim\n"
+                      "\n@code{"))
+         (close-texi (if (pretty-printable? val)
+                       "@end verbatim"
+                       "}")))
+    (string-append open-texi (scm->string val) close-texi)))
 
 (define (texi-section-command level)
   (assoc-get level '(
@@ -91,7 +92,7 @@
   "Document one (LABEL . DESC); return empty string if LABEL is empty string."
   (if (eq? (car label-desc-pair) "")
       ""
-      (string-append "\n@item " (car label-desc-pair) "\n" (cdr label-desc-pair))))
+      (string-append "\n\n@item " (car label-desc-pair) "\n" (cdr label-desc-pair))))
 
 
 (define (description-list->texi items-alist quote?)
@@ -100,9 +101,9 @@ string-to-use).  If QUOTE? is #t, embed table in a @quotation environment."
   (string-append
    "\n"
    (if quote? "@quotation\n" "")
-   "@table @asis\n"
+   "@table @asis"
    (string-concatenate (map one-item->texi items-alist))
-   "\n"
+   "\n\n"
    "@end table\n"
    (if quote? "@end quotation\n" "")))
 
@@ -142,7 +143,7 @@ string-to-use).  If QUOTE? is #t, embed table in a @quotation environment."
    "\n* GNU " name ": (" file-name ").          " name "."
    "\n@end direntry\n"
    "@documentlanguage en\n"
-   "@documentencoding utf-8\n"))
+   "@documentencoding UTF-8\n"))
 
 (define (context-name name)
   name)
@@ -209,12 +210,8 @@ with init values from ALIST (1st optional argument)
         (ly:error (_ "cannot find description for property ~S (~S)") sym where))
 
     (cons
-     (string-append "@code{" name "} "
-                    "(" typename ")"
+     (string-append "@code{" name "} (" typename ")"
                     (if init-value
-                        (string-append
-                         ":\n\n"
-                         (scm->texi init-value)
-                         "\n\n")
-                        ""))
+                      (string-append ":" (scm->texi init-value) "\n")
+                      ""))
      desc)))

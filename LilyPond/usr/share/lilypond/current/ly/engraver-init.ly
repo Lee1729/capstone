@@ -1,6 +1,6 @@
 %%%% This file is part of LilyPond, the GNU music typesetter.
 %%%%
-%%%% Copyright (C) 1996--2012 Han-Wen Nienhuys <hanwen@xs4all.nl>
+%%%% Copyright (C) 1996--2015 Han-Wen Nienhuys <hanwen@xs4all.nl>
 %%%%                          Jan Nieuwenhuizen <janneke@gnu.org>
 %%%%
 %%%% LilyPond is free software: you can redistribute it and/or modify
@@ -16,7 +16,7 @@
 %%%% You should have received a copy of the GNU General Public License
 %%%% along with LilyPond.  If not, see <http://www.gnu.org/licenses/>.
 
-\version "2.17.29"
+\version "2.19.46"
 
 \context {
   \name "Global"
@@ -65,7 +65,7 @@
   \consists "Dot_column_engraver"
   \consists "Staff_collecting_engraver"
 
- %% perhaps move to Voice context?
+  %% perhaps move to Voice context?
   \consists "Ottava_spanner_engraver"
   \consists "Clef_engraver"
   \consists "Key_engraver"
@@ -86,7 +86,7 @@
   \consists "Cue_clef_engraver"
   \consists "Fingering_column_engraver"
 
-  localKeySignature = #'()
+  localAlterations = #'()
   createSpacing = ##t
   ignoreFiguredBassRest = ##f
 
@@ -97,9 +97,9 @@
   shortInstrumentName = #'()
 
   \defaultchild "Voice"
-  \accepts "Voice"
   \accepts "CueVoice"
   \accepts "NullVoice"
+  \accepts "Voice"
 
   \description "Handles clefs, bar lines, keys, accidentals.  It can contain
 @code{Voice} contexts."
@@ -123,7 +123,7 @@
   \accepts "DrumVoice"
   \defaultchild "DrumVoice"
 
-  clefGlyph = #"clefs.percussion"
+  clefGlyph = "clefs.percussion"
   clefPosition = #0
   \override Script.staff-padding = #0.75
 }
@@ -134,6 +134,7 @@
   \name "ChoirStaff"
   \consists "Vertical_align_engraver"
   topLevelAlignment = ##f
+  localAlterations = #'()
 
   \consists "Instrument_name_engraver"
   \consists "System_start_delimiter_engraver"
@@ -144,15 +145,17 @@
   vocalName = #'()
   shortVocalName = #'()
 
-  \accepts "Staff"
-  \accepts "DrumStaff"
-  \accepts "RhythmicStaff"
-  \accepts "GrandStaff"
-  \accepts "PianoStaff"
-  \accepts "Lyrics"
-  \accepts "ChordNames"
-  \accepts "FiguredBass"
   \accepts "ChoirStaff"
+  \accepts "ChordNames"
+  \accepts "DrumStaff"
+  \accepts "Dynamics"
+  \accepts "FiguredBass"
+  \accepts "GrandStaff"
+  \accepts "Lyrics"
+  \accepts "OneStaff"
+  \accepts "PianoStaff"
+  \accepts "RhythmicStaff"
+  \accepts "Staff"
   \accepts "StaffGroup"
   \defaultchild "Staff"
   \description "Identical to @code{StaffGroup} except that the
@@ -162,11 +165,11 @@ contained staves are not connected vertically."
 \context{
   \type "Engraver_group"
 
-  localKeySignature = #'()
+  localAlterations = #'()
   createSpacing = ##t
 
   squashedPosition = #0
-  \name RhythmicStaff
+  \name "RhythmicStaff"
   \alias "Staff"
 
   \override VoltaBracket.staff-padding = #3
@@ -191,8 +194,9 @@ contained staves are not connected vertically."
   instrumentName = #'()
   shortInstrumentName = #'()
 
-  \accepts "Voice"
   \accepts "CueVoice"
+  \accepts "NullVoice"
+  \accepts "Voice"
   \defaultchild "Voice"
 
   \description "A context like @code{Staff} but for printing rhythms.
@@ -210,7 +214,8 @@ subscripts, slurs, ties, and rests.
 
 You have to instantiate this explicitly if you want to have
 multiple voices on the same staff."
-
+  %% Grace_engraver sets properties, it must come first.
+  \consists "Grace_engraver"
   \consists "Font_size_engraver"
 
   \consists "Pitched_trill_engraver"
@@ -266,25 +271,26 @@ multiple voices on the same staff."
   \consists "Slur_engraver"
   \consists "Tie_engraver"
   \consists "Tuplet_engraver"
-  \consists "Grace_engraver"
   \consists "Instrument_switch_engraver"
 }
 
 \context{
   \Voice
 
-  \name CueVoice
-  \alias Voice
+  \name "CueVoice"
+  \alias "Voice"
   fontSize = #-4
+  \override NoteHead.ignore-ambitus = ##t
   \override Stem.length-fraction = #(magstep -4)
   \override Beam.length-fraction = #(magstep -4)
   \override Beam.beam-thickness = #0.35
+  \override StemTremolo.beam-thickness = #0.35
 }
 
 \context {
   \Voice
-  \name DrumVoice
-  \alias Voice
+  \name "DrumVoice"
+  \alias "Voice"
 
   \description "A voice on a percussion staff."
   \remove "Arpeggio_engraver"
@@ -304,8 +310,8 @@ multiple voices on the same staff."
 
 \context{
   \type "Engraver_group"
-  \name GrandStaff
-  localKeySignature = #'()
+  \name "GrandStaff"
+  localAlterations = #'()
 
   \description "A group of staves, with a brace on the left
 side, grouping the staves together.  The bar lines of the
@@ -313,6 +319,9 @@ contained staves are connected vertically."
 
   \consists "Instrument_name_engraver"
   \consists "Span_bar_engraver"
+  %% The default for DynamicText.extra-spacing-width causes dynamics to
+  %% be placed across span bars, so switch it off:
+  \override DynamicText.extra-spacing-width = ##f
   \consists "Span_bar_stub_engraver"
   \consists "Span_arpeggio_engraver"
   \consists "System_start_delimiter_engraver"
@@ -324,14 +333,14 @@ contained staves are connected vertically."
   shortInstrumentName = #'()
 
   \defaultchild "Staff"
-  \accepts "Staff"
-  \accepts "RhythmicStaff"
-  \accepts "DrumStaff"
-  \accepts "TabStaff"
-  \accepts "Lyrics"
-  \accepts "FiguredBass"
-  \accepts "Dynamics"
   \accepts "ChordNames"
+  \accepts "DrumStaff"
+  \accepts "Dynamics"
+  \accepts "FiguredBass"
+  \accepts "Lyrics"
+  \accepts "RhythmicStaff"
+  \accepts "Staff"
+  \accepts "TabStaff"
 }
 
 \context{
@@ -359,6 +368,9 @@ together, never separately."
 
   \consists "Instrument_name_engraver"
   \consists "Span_bar_engraver"
+  %% The default for DynamicText.extra-spacing-width causes dynamics to
+  %% be placed across span bars, so switch it off:
+  \override DynamicText.extra-spacing-width = ##f
   \consists "Span_bar_stub_engraver"
   \consists "Span_arpeggio_engraver"
   \consists "Output_property_engraver"
@@ -370,17 +382,19 @@ together, never separately."
   \consists "System_start_delimiter_engraver"
 
   \defaultchild "Staff"
-  \accepts "Staff"
-  \accepts "RhythmicStaff"
-  \accepts "DrumStaff"
-  \accepts "GrandStaff"
-  \accepts "PianoStaff"
-  \accepts "TabStaff"
-  \accepts "Lyrics"
-  \accepts "ChordNames"
-  \accepts "FiguredBass"
   \accepts "ChoirStaff"
+  \accepts "ChordNames"
+  \accepts "DrumStaff"
+  \accepts "FiguredBass"
+  \accepts "FretBoards"
+  \accepts "GrandStaff"
+  \accepts "Lyrics"
+  \accepts "OneStaff"
+  \accepts "PianoStaff"
+  \accepts "RhythmicStaff"
+  \accepts "Staff"
   \accepts "StaffGroup"
+  \accepts "TabStaff"
 
   \description "Groups staves while adding a bracket on the left
 side, grouping the staves together.  The bar lines of the contained
@@ -390,8 +404,37 @@ a collection of staves, with a bracket in front and spanning bar lines."
 
 \context {
   \type "Engraver_group"
-  \name Dynamics
-  \alias Voice
+  \name "OneStaff"
+  \accepts "ChordNames"
+  \accepts "DrumStaff"
+  \accepts "Dynamics"
+  \accepts "FiguredBass"
+  \accepts "FretBoards"
+  \accepts "GregorianTranscriptionStaff"
+  \accepts "KievanStaff"
+  \accepts "Lyrics"
+  \accepts "MensuralStaff"
+  \accepts "NoteNames"
+  \accepts "PetrucciStaff"
+  \accepts "RhythmicStaff"
+  \accepts "Staff"
+  \accepts "TabStaff"
+  \accepts "VaticanaStaff"
+  \defaultchild "Staff"
+  \consists "Axis_group_engraver"
+
+  \description "Provides a common axis for the contained staves,
+making all of them appear in the same vertical space.  This can be
+useful for typesetting staves of different types in immediate succession
+or for temporarily changing the character of one staff or overlaying
+it with a different one.  Often used with @code{\\stopStaff} and
+@code{\\startStaff} for best results."
+}
+
+\context {
+  \type "Engraver_group"
+  \name "Dynamics"
+  \alias "Voice"
   \consists "Output_property_engraver"
   \consists "Bar_engraver"
   \consists "Piano_pedal_engraver"
@@ -414,13 +457,6 @@ a collection of staves, with a bracket in front and spanning bar lines."
   \override DynamicLineSpanner.outside-staff-priority = ##f
   \override DynamicText.outside-staff-priority = ##f
   \override Hairpin.outside-staff-priority = ##f
-  \override DynamicText.X-offset =
-  #(ly:make-simple-closure
-    `(,+
-      ,(ly:make-simple-closure
-         (list ly:self-alignment-interface::centered-on-note-columns))
-      ,(ly:make-simple-closure
-        (list ly:self-alignment-interface::x-aligned-on-self))))
 
   \description "Holds a single line of dynamics, which will be
 centered between the staves surrounding this context."
@@ -456,9 +492,9 @@ printing of a single line of lyrics."
        (stretchability . 1))
   \override VerticalAxisGroup.nonstaff-nonstaff-spacing =
      #'((basic-distance . 0)
-	(minimum-distance . 2.8)
-	(padding . 0.2)
-	(stretchability . 0))
+        (minimum-distance . 2.8)
+        (padding . 0.2)
+        (stretchability . 0))
   \override VerticalAxisGroup.nonstaff-unrelatedstaff-spacing.padding = #1.5
   \override InstrumentName.self-alignment-Y = ##f
 
@@ -473,7 +509,9 @@ printing of a single line of lyrics."
 
 \context {
   \type "Engraver_group"
-  \name NoteNames
+  \name "NoteNames"
+  \alias Staff			% Catch Staff-level overrides like
+				% \key, \transposition
   \description "A context for printing the names of notes."
   \consists "Axis_group_engraver"
 
@@ -496,20 +534,23 @@ printing of a single line of lyrics."
 
 \context {
   \type "Engraver_group"
-  \name ChordNames
+  \name "ChordNames"
+  \alias Staff			% Catch Staff-level overrides like
+				% \key, \transposition
   \description "Typesets chord names."
 
   \consists "Output_property_engraver"
   \consists "Separating_line_group_engraver"
   \consists "Chord_name_engraver"
   \consists "Axis_group_engraver"
-%  \consists "Note_spacing_engraver"
+  %\consists "Note_spacing_engraver"
 
   \override VerticalAxisGroup.remove-first = ##t
   \override VerticalAxisGroup.remove-empty = ##t
   \override VerticalAxisGroup.staff-affinity = #DOWN
   \override VerticalAxisGroup.nonstaff-relatedstaff-spacing.padding = #0.5
   \override VerticalAxisGroup.nonstaff-nonstaff-spacing.padding = #0.5
+  \override ParenthesesItem.font-size = #1.5
 }
 
 \context {
@@ -540,7 +581,7 @@ automatically when an output definition (a @code{\\score} or
   %% Timing variables in layout definitions before any
   %% Timing_translator has been run.
 
-  % timing translator must come BEFORE bar number engraver
+  %% timing translator must come BEFORE bar number engraver
   \consists "Timing_translator"
   \consists "Default_bar_line_engraver"
   \consists "Output_property_engraver"
@@ -562,40 +603,43 @@ automatically when an output definition (a @code{\\score} or
 
   \defaultchild "Staff"
 
-  \accepts "FretBoards"
-  \accepts "Staff"
-  \accepts "RhythmicStaff"
-  \accepts "TabStaff"
-  \accepts "VaticanaStaff"
-  \accepts "GregorianTranscriptionStaff"
-  \accepts "MensuralStaff"
-  \accepts "PetrucciStaff"
-  \accepts "StaffGroup"
+  \accepts "ChoirStaff"
+  \accepts "ChordNames"
+  \accepts "Devnull"
   \accepts "DrumStaff"
+  \accepts "Dynamics"
+  \accepts "FiguredBass"
+  \accepts "FretBoards"
+  \accepts "GrandStaff"
+  \accepts "GregorianTranscriptionStaff"
   \accepts "KievanStaff"
   \accepts "Lyrics"
-  \accepts "ChordNames"
-  \accepts "GrandStaff"
-  \accepts "ChoirStaff"
-  \accepts "PianoStaff"
-  \accepts "Devnull"
+  \accepts "MensuralStaff"
   \accepts "NoteNames"
-  \accepts "FiguredBass"
+  \accepts "OneStaff"
+  \accepts "PetrucciStaff"
+  \accepts "PianoStaff"
+  \accepts "RhythmicStaff"
+  \accepts "Staff"
+  \accepts "StaffGroup"
+  \accepts "TabStaff"
+  \accepts "VaticanaStaff"
 
   noteToFretFunction = #determine-frets
   predefinedDiagramTable = ##f
-  soloText = #"Solo"
-  soloIIText = #"Solo II"
-  aDueText = #"a2"
+  soloText = "Solo"
+  soloIIText = "Solo II"
+  aDueText = "a2"
   printPartCombineTexts = ##t
   partCombineTextsOnNote = ##t
   systemStartDelimiter =#'SystemStartBar
 
   drumStyleTable = #drums-style
 
+  associatedVoiceType = #'Voice
   melismaBusyProperties = #default-melisma-properties
   tieWaitForNote = ##f
-  clefGlyph = #"clefs.G"
+  clefGlyph = "clefs.G"
   clefPosition = #-2
   middleCClefPosition = #-6
   middleCPosition = #-6
@@ -604,10 +648,11 @@ automatically when an output definition (a @code{\\score} or
   crescendoSpanner = #'hairpin
   decrescendoSpanner = #'hairpin
 
-  defaultBarType = #"|"
-  doubleRepeatType = #":..:"
-  startRepeatType = #".|:"
-  endRepeatType = #":|."
+  defaultBarType = "|"
+  doubleRepeatType = ":..:"
+  startRepeatType = ".|:"
+  endRepeatType = ":|."
+  alternativeRestores = #'(measurePosition measureLength lastChord)
   barNumberVisibility = #first-bar-number-invisible-and-no-parenthesized-bar-numbers
   barNumberFormatter = #robust-bar-number-function
   clefTranspositionFormatter = #clef-transposition-markup
@@ -617,13 +662,13 @@ automatically when an output definition (a @code{\\score} or
   explicitClefVisibility = #all-visible
   explicitCueClefVisibility = #end-of-line-invisible
   explicitKeySignatureVisibility = #all-visible
-  implicitTimeSignatureVisibility = #end-of-line-invisible
+  initialTimeSignatureVisibility = #end-of-line-invisible
 
   repeatCountVisibility = #all-repeat-counts-visible
 
-%% Other Timing variables are derived and set by the Timing_translator
-%% at initialization time by calling the functions in
-%% scm/time-signature-settings.scm
+  %% Other Timing variables are derived and set by the Timing_translator
+  %% at initialization time by calling the functions in
+  %% scm/time-signature-settings.scm
 
   timeSignatureSettings = #default-time-signature-settings
   timeSignatureFraction = 4/4
@@ -633,6 +678,8 @@ automatically when an output definition (a @code{\\score} or
   autoBeaming = ##t
   autoBeamCheck = #default-auto-beam-check
 
+  completionFactor = #unity-if-multimeasure
+
   scriptDefinitions = #default-script-alist
 
   pedalSustainStrings = #'("Ped." "*Ped." "*")
@@ -640,10 +687,10 @@ automatically when an output definition (a @code{\\score} or
   pedalUnaCordaStrings = #'("una corda" "" "tre corde")
   pedalUnaCordaStyle = #'text
 
-%% These are in ordinary italic font, including the *,
-%% but they are unlikely to be used,
-%% as the default pedal-style for SostenutoPedal is 'mixed':
-%% i.e.  Sost. Ped_____________________
+  %% These are in ordinary italic font, including the *,
+  %% but they are unlikely to be used,
+  %% as the default pedal-style for SostenutoPedal is 'mixed':
+  %% i.e.  Sost. Ped_____________________
   pedalSostenutoStrings = #'("Sost. Ped." "*Sost. Ped." "*")
   pedalSostenutoStyle = #'mixed
 
@@ -652,6 +699,7 @@ automatically when an output definition (a @code{\\score} or
   stringNumberOrientations = #'(up down)
   strokeFingerOrientations = #'(right)
 
+  extendersOverRests = ##t
   lyricMelismaAlignment = #LEFT
   markFormatter = #format-mark-letters
   rehearsalMark = #1
@@ -670,10 +718,10 @@ automatically when an output definition (a @code{\\score} or
 
   barCheckSynchronize = ##f
 
-%% chord names:
+  %% chord names:
   chordNameFunction = #ignatzek-chord-names
   minorChordModifier = #(make-simple-markup "m")
-  additionalPitchPrefix = #"" % was "add"
+  additionalPitchPrefix = "" % was "add"
   majorSevenSymbol = #whiteTriangleMarkup
   chordNameLowercaseMinor = ##f
   chordNameSeparator = #(make-hspace-markup 0.5)
@@ -686,16 +734,12 @@ automatically when an output definition (a @code{\\score} or
   chordNameExceptionsPartial = #partialJazzExceptions
   noChordSymbol = #(make-simple-markup "N.C.")
 
-  bassStaffProperties = #'((assign clefGlyph "clefs.F")
-  (assign clefPosition 2)
-  (assign middleCPosition 6)
-  (assign middleCClefPosition 6))
-%% tablature:
+  %% tablature:
   stringOneTopmost = ##t
   highStringOne = ##t
 
-%% One may change the string tunings as follows :
-%% The length of the list must be equal to the number of strings
+  %% One may change the string tunings as follows :
+  %% The length of the list must be equal to the number of strings
   stringTunings = #guitar-tuning
   tablatureFormat = #fret-number-tablature-format
   tabStaffLineLayoutFunction = #tablature-position-on-lines
@@ -722,14 +766,15 @@ automatically when an output definition (a @code{\\score} or
     ;; need this, as stanza numbers are items, and appear only once.
     stanza-number-interface
   )
-  % \quoteDuring is supposed to quote everything, cueDuring only the essentials
+  %% \quoteDuring is supposed to quote everything, cueDuring only the essentials
   quotedEventTypes = #'(StreamEvent)
   quotedCueEventTypes = #'(
     note-event
     rest-event
     tie-event
     beam-event
-    tuplet-span-event)
+    tuplet-span-event
+    tremolo-event)
   instrumentTransposition = #(ly:make-pitch 0 0 0)
 
   topLevelAlignment = ##t
@@ -760,7 +805,7 @@ automatically when an output definition (a @code{\\score} or
   \name "Devnull"
   \type "Engraver_group"
 
-%% don't want to route anything out of here:
+  %% don't want to route anything out of here:
   \alias "Staff"
   \alias "Voice"
   \description "Silently discards all musical information given to this
@@ -770,54 +815,37 @@ context."
 \context {
   \name "NullVoice"
   \type "Engraver_group"
-
-  \description "Non-printing context, typically used for aligning
-lyrics in polyphonic situations, or with @code{\partcombine}."
+  \description "For aligning lyrics without printing notes"
 
   %% don't route anything out of here
   \alias "Staff"
   \alias "Voice"
 
-  %% all three are needed for ties to work with lyrics
+  %% provide non-printing NoteHeads with proper extents for lyric alignment
   \consists "Note_heads_engraver"
-  \consists "Rhythmic_column_engraver"
-  \consists "Tie_engraver"
+  \omit NoteHead
+  \override NoteHead.X-extent = #(lambda (g)
+    (ly:stencil-extent (ly:note-head::print g) X))
 
-  %% both are needed for melismas to work with \autoBeamOff
-  \consists "Beam_engraver"
-  \consists "Stem_engraver"
-
-  %% needed for slurs to work with lyrics
-  \consists "Slur_engraver"
+  %% generate no accidentals
+  nullAccidentals = ##t
 
   %% keep noteheads inside the staff
   \consists "Pitch_squash_engraver"
   squashedPosition = 0
 
-  %% `\omit NoteHead' would give slur attachment errors
-  \omit Accidental
-  \omit Beam
-  \omit Dots
-  \omit Flag
-  \omit Rest
-  \omit Slur
-  \omit Stem
+  %% generate no ledger lines, needed for staves with custom
+  %% line positions and ledger lines that appear inside the staff
+  \override NoteHead.no-ledgers = ##t
+
+  %% the engravers that control the 'busy' flags for note-onsets and melismata
+  \consists "Grob_pq_engraver"
+  \consists "Tie_engraver"
   \omit Tie
-
-  %% let these take up space (for lyric extenders, etc.)
-  \override NoteHead.transparent = ##t
-  \override TabNoteHead.transparent = ##t
-
-  %% don't let notes shift
-  \override NoteHead.X-offset = 0
-  \override NoteColumn.ignore-collision = ##t
-
-  %% keep beams and stems inside the staff
-  \override Beam.positions = #'(1 . 1)
-  \override Stem.length = 0
-
-  %% prevent "weird stem size" warnings
-  \override Stem.direction = #UP
+  \consists "Beam_engraver"
+  \omit Beam
+  \consists "Slur_engraver"
+  \omit Slur
 }
 
 \context {
@@ -872,7 +900,7 @@ contexts and handles the line spacing, the tablature clef etc. properly."
   %% stem overlapping, because we have no stems ;-)
   \override NoteColumn.ignore-collision = ##t
   %% Special "TAB" clef
-  clefGlyph = #"clefs.tab"
+  clefGlyph = "clefs.tab"
   clefPosition = #0
   %% Change string if note results in negative fret number
   handleNegativeFrets = #'recalculate
@@ -937,9 +965,9 @@ contexts and handles the line spacing, the tablature clef etc. properly."
   %% the direction for glissando lines will be automatically corrected
   \override Glissando.extra-dy = #glissando::calc-tab-extra-dy
   \override Glissando.bound-details.right = #`((attach-dir . ,LEFT)
-						   (padding . 0.3))
+                                                   (padding . 0.3))
   \override Glissando.bound-details.left = #`((attach-dir . ,RIGHT)
-						   (padding . 0.3))
+                                                   (padding . 0.3))
   %% dead notes
   \override TabNoteHead.glyph-name = #tab-note-head::calc-glyph-name
   \override TabNoteHead.stencil = #tab-note-head::whiteout-if-style-set
@@ -998,7 +1026,7 @@ of Editio Vaticana."
   %% \override StaffSymbol.width = #60.0
 
   %% Choose vaticana do clef on 3rd line as default.
-  clefGlyph = #"clefs.vaticana.do"
+  clefGlyph = "clefs.vaticana.do"
   middleCPosition = #1
   middleCClefPosition = #1
   clefPosition = #1
@@ -1031,7 +1059,6 @@ of Editio Vaticana."
 
   %% There are no beams in Gregorian Chant notation.
   autoBeaming = ##f
-
 }
 
 \context {
@@ -1091,7 +1118,7 @@ accommodated for typesetting a piece in mensural style."
   %% \override StaffSymbol.width = #60.0
 
   %% Choose mensural g clef on 2nd line as default.
-  clefGlyph = #"clefs.mensural.g"
+  clefGlyph = "clefs.mensural.g"
   middleCClefPosition = #-6
   middleCPosition = #-6
   clefPosition = #-2
@@ -1101,6 +1128,7 @@ accommodated for typesetting a piece in mensural style."
   \override TimeSignature.style = #'mensural
   \override KeySignature.glyph-name-alist = #alteration-mensural-glyph-name-alist
   \override Accidental.glyph-name-alist = #alteration-mensural-glyph-name-alist
+  \override AccidentalSuggestion.glyph-name-alist = #alteration-mensural-glyph-name-alist
   \override Custos.style = #'mensural
   \override Custos.neutral-position = #3
   \override Custos.neutral-direction = #DOWN
@@ -1127,7 +1155,7 @@ accommodated for typesetting a piece in Petrucci style."
   \override NoteHead.style = #'petrucci
   \override Rest.style = #'mensural
 
-  % Thickens and shortens stems.
+  %% Thickens and shortens stems.
   \override Stem.thickness = #1.7
   \override Stem.length = #5
 
@@ -1150,7 +1178,7 @@ accommodated for typesetting a piece in Petrucci style."
   \override StaffSymbol.thickness = #1.3
 
   %% Choose Petrucci g clef on 2nd line as default.
-  clefGlyph = #"clefs.petrucci.g"
+  clefGlyph = "clefs.petrucci.g"
   middleCClefPosition = #-6
   middleCPosition = #-6
   clefPosition = #-2
@@ -1169,58 +1197,58 @@ accommodated for typesetting a piece in Petrucci style."
 }
 
 \context {
- \Voice
- \name "KievanVoice"
- \alias "Voice"
- \description "Same as @code{Voice} context, except that it is
+  \Voice
+  \name "KievanVoice"
+  \alias "Voice"
+  \description "Same as @code{Voice} context, except that it is
 accommodated for typesetting a piece in Kievan style."
 
   \remove "Ligature_bracket_engraver"
   \consists "Kievan_ligature_engraver"
 
- %% Set glyph styles.
- \override NoteHead.style = #'kievan
- \override Stem.X-offset = #stem::kievan-offset-callback
- \override Stem.stencil = ##f
- \override Flag.stencil = ##f
- \override Rest.style = #'mensural
- \override Accidental.glyph-name-alist = #alteration-kievan-glyph-name-alist
- \override Dots.style = #'kievan
- \override Slur.stencil = ##f
- \override Stem.length = #0.0
- \override Beam.positions = #beam::get-kievan-positions
- \override Beam.quantized-positions = #beam::get-kievan-quantized-positions
- \override NoteHead.duration-log = #note-head::calc-kievan-duration-log
+  %% Set glyph styles.
+  \override NoteHead.style = #'kievan
+  \override Stem.X-offset = #stem::kievan-offset-callback
+  \override Stem.stencil = ##f
+  \override Flag.stencil = ##f
+  \override Rest.style = #'mensural
+  \override Accidental.glyph-name-alist = #alteration-kievan-glyph-name-alist
+  \override Dots.style = #'kievan
+  \override Slur.stencil = ##f
+  \override Stem.length = #0.0
+  \override Beam.positions = #beam::get-kievan-positions
+  \override Beam.quantized-positions = #beam::get-kievan-quantized-positions
+  \override NoteHead.duration-log = #note-head::calc-kievan-duration-log
 
- %% There are beams in Kievan notation, but they are invoked manually
- autoBeaming = ##f
+  %% There are beams in Kievan notation, but they are invoked manually
+  autoBeaming = ##f
 }
 
 \context {
- \Staff
- \name "KievanStaff"
- \alias "Staff"
- \denies "Voice"
- \defaultchild "KievanVoice"
- \accepts "KievanVoice"
- \description "Same as @code{Staff} context, except that it is
+  \Staff
+  \name "KievanStaff"
+  \alias "Staff"
+  \denies "Voice"
+  \defaultchild "KievanVoice"
+  \accepts "KievanVoice"
+  \description "Same as @code{Staff} context, except that it is
 accommodated for typesetting a piece in Kievan style."
 
- \remove "Time_signature_engraver"
+  \remove "Time_signature_engraver"
 
- %% Choose Kievan tsefaut clef
- clefGlyph = #"clefs.kievan.do"
- middleCClefPosition = #0
- middleCPosition = #0
- clefPosition = #0
- clefTransposition = #0
+  %% Choose Kievan tsefaut clef
+  clefGlyph = "clefs.kievan.do"
+  middleCClefPosition = #0
+  middleCPosition = #0
+  clefPosition = #0
+  clefTransposition = #0
 
- %% Accidentals are valid only once (if the following note is different)
- extraNatural = ##f
- autoAccidentals = #`(Staff ,(make-accidental-rule 'same-octave 0)
-                            ,neo-modern-accidental-rule)
- autoCautionaries = #'()
- printKeyCancellation = ##f
+  %% Accidentals are valid only once (if the following note is different)
+  extraNatural = ##f
+  autoAccidentals = #`(Staff ,(make-accidental-rule 'same-octave 0)
+                             ,neo-modern-accidental-rule)
+  autoCautionaries = #'()
+  printKeyCancellation = ##f
 
 }
 

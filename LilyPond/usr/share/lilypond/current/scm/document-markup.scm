@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 1998--2012 Han-Wen Nienhuys <hanwen@xs4all.nl>
+;;;; Copyright (C) 1998--2015 Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;;                 Jan Nieuwenhuizen <janneke@gnu.org>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
@@ -18,7 +18,7 @@
 
 
 (define (doc-markup-function-properties func)
-  (let ((properties (hashq-ref markup-functions-properties func))
+  (let ((properties (markup-function-properties func))
         (prop-strings (list)))
     (for-each (lambda (prop-spec)
                 (set! prop-strings
@@ -41,27 +41,28 @@
               (or properties (list)))
     prop-strings))
 
-(define (doc-markup-function func)
-  (let* ((doc-str  (procedure-documentation func))
-         (f-name (symbol->string (procedure-name  func)))
+(define (doc-markup-function func-pair)
+  (let* ((f-name (symbol->string (car func-pair)))
+         (func (cdr func-pair))
+         (full-doc (procedure-documentation func))
+         (match-args (and full-doc (string-match "^\\([^)]*\\)\n" full-doc)))
+         (arg-names (if match-args
+                        (with-input-from-string (match:string match-args) read)
+                        (circular-list "arg")))
+         (doc-str (if match-args (match:suffix match-args) full-doc))
          (c-name (regexp-substitute/global #f "-markup(-list)?$" f-name  'pre "" 'post))
-         (sig (object-property func 'markup-signature))
-         (arg-names (let ((arg-list (cadr (procedure-source func))))
-                      (if (list? arg-list)
-                          (map symbol->string (cddr arg-list))
-                          (make-list (length sig) "arg"))))
+         (sig (markup-command-signature func))
          (sig-type-names (map type-name sig))
          (signature-str
           (string-join
-           (map (lambda (x) (string-append
-                             "@var{" (car x) "} ("  (cadr x) ")" ))
-                (zip arg-names  sig-type-names))
+           (map (lambda (x y)
+                  (format #f "@var{~a} (~a)" x y))
+                arg-names  sig-type-names)
            " " )))
 
     (string-append
      "\n\n@item @code{\\" c-name "} " signature-str
      "\n@funindex \\" c-name "\n"
-     "\n@cindex \\" c-name "\n"
      (if (string? doc-str)
          doc-str
          "")
@@ -72,19 +73,41 @@
                           (string-concatenate prop-strings)
                           "@end itemize\n"))))))
 
-(define (markup-function<? a b)
-  (ly:string-ci<? (symbol->string (procedure-name a)) (symbol->string (procedure-name b))))
+(define (markup-name<? a b)
+  (ly:string-ci<? (symbol->string (car a)) (symbol->string (car b))))
+
+(define all-markup-commands '())
+(define all-markup-list-commands '())
+
+(for-each
+ (lambda (m)
+   (module-for-each (lambda (sym var)
+                      (let ((val (variable-ref var)))
+                        (cond ((markup-function? val)
+                               (set! all-markup-commands
+                                     (acons sym val all-markup-commands)))
+                              ((markup-list-function? val)
+                               (set! all-markup-list-commands
+                                     (acons sym val all-markup-list-commands))))))
+                    (module-public-interface m)))
+ (cons (current-module) (map resolve-module '((lily) (scm accreg)))))
+
+(set! all-markup-commands (sort! all-markup-commands markup-name<?))
+(set! all-markup-list-commands (sort! all-markup-list-commands markup-name<?))
 
 (define (markup-category-doc-node category)
   (let* ((category-string (symbol->string category))
          (category-name (string-capitalize
                          (regexp-substitute/global
                           #f "-" category-string 'pre " " 'post)))
-         (markup-functions (hash-fold (lambda (markup-function dummy functions)
-                                        (cons markup-function functions))
-                                      '()
-                                      (hashq-ref markup-functions-by-category
-                                                 category))))
+         (markup-functions (filter
+                            (lambda (fun)
+                              (let ((cats (markup-function-category (cdr fun))))
+                                (if (pair? cats)
+                                    (memq category cats)
+                                    (eq? category cats))))
+                            all-markup-commands)))
+
     (make <texi-node>
       #:appendix #t
       #:name category-name
@@ -92,8 +115,7 @@
       #:text (string-append
               "@table @asis"
               (string-concatenate
-               (map doc-markup-function
-                    (sort markup-functions markup-function<?)))
+               (map doc-markup-function markup-functions))
               "\n@end table"))))
 
 (define (markup-doc-node)
@@ -104,24 +126,26 @@
     #:text "The following commands can all be used inside @code{\\markup @{ @}}."
     #:children (let* (;; when a new category is defined, update `ordered-categories'
                       (ordered-categories '(font align graphic music instrument-specific-markup accordion-registers other))
-                      (raw-categories (hash-fold (lambda (category functions categories)
-                                                   (cons category categories))
-                                                 (list)
-                                                 markup-functions-by-category))
+                      (raw-categories
+                       (fold (lambda (next union)
+                               (let ((cat (markup-function-category next)))
+                                 (cond ((pair? cat)
+                                        (lset-union eq? cat union))
+                                       ((symbol? cat)
+                                        (lset-adjoin eq? cat union))
+                                       (else union))))
+                             '()
+                             all-markup-commands))
                       (categories (append ordered-categories
-                                          (filter (lambda (cat)
-                                                    (not (memq cat ordered-categories)))
-                                                  raw-categories))))
+                                          (sort (lset-difference eq?
+                                                                 raw-categories
+                                                                 ordered-categories)
+                                                symbol<?))))
                  (map markup-category-doc-node categories))))
 
 (define (markup-list-doc-string)
   (string-append
    "@table @asis"
    (string-concatenate
-    (map doc-markup-function
-         (sort (hash-fold (lambda (markup-list-function dummy functions)
-                            (cons markup-list-function functions))
-                          '()
-                          markup-list-functions)
-               markup-function<?)))
+    (map doc-markup-function all-markup-list-commands))
    "\n@end table"))

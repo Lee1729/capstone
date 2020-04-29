@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 2005--2012 Jan Nieuwenhuizen <janneke@gnu.org>
+;;;; Copyright (C) 2005--2015 Jan Nieuwenhuizen <janneke@gnu.org>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
 ;;;; it under the terms of the GNU General Public License as published by
@@ -27,64 +27,59 @@
  (lily)
  )
 
-;; FIXME: use backend-library for duplicates and stubs; lilypond-ps2png.scm is no more
-
-(define-public _ gettext)
-
-(define PLATFORM
-  (string->symbol
-   (string-downcase
-    (car (string-tokenize (vector-ref (uname) 0) char-set:letter)))))
-
 (define (re-sub re sub string)
   (regexp-substitute/global #f re string 'pre sub 'post))
-
-(define (search-executable names)
-  (define (helper path lst)
-    (if (null? (cdr lst))
-        (car lst)
-        (if (search-path path (car lst)) (car lst)
-            (helper path (cdr lst)))))
-
-  (let ((path (parse-path (getenv "PATH"))))
-    (helper path names)))
-
-(define (search-gs)
-  (search-executable '("gs-nox" "gs-8.15" "gs")))
-
-(define (gulp-port port max-length)
-  (let ((str (make-string max-length)))
-    (read-string!/partial str port 0 max-length)
-    str))
 
 (define-public (gulp-file file-name . max-size)
   (ly:gulp-file file-name (if (pair? max-size) (car max-size))))
 
-;; copy of ly:system. ly:* not available via lilypond-ps2png.scm
-(define (my-system be-verbose exit-on-error cmd)
-  (define status 0)
-  (ly:debug (_ "Invoking `~a'...\n") cmd)
-  (set! status (system cmd))
-  (if (not (= status 0))
-      (begin
-        (ly:error (_ "~a exited with status: ~S") "GS" status)
-        (if exit-on-error (exit 1))))
-  status)
+(define (search-pngtopam)
+  (search-executable
+   (if (eq? PLATFORM 'windows)
+       '("pngtopam.exe" "pngtopnm.exe")
+       '("pngtopam" "pngtopnm"))))
 
-(define (scale-down-image be-verbose factor file)
-  (define (with-pbm)
-    (let* ((status 0)
-           (old (string-append file ".old")))
+(define (search-pamscale)
+  (search-executable
+   (if (eq? PLATFORM 'windows)
+       '("pamscale.exe" "pnmscale.exe")
+       '("pamscale" "pnmscale"))))
 
-      (rename-file file old)
-      (my-system
-       be-verbose #t
-       (format #f
-               "pngtopnm \"~a\" | pnmscale -reduce ~a 2>/dev/null | pnmtopng -compression 9 2>/dev/null > \"~a\""
-               old factor file))
-      (delete-file old)))
+(define (search-pnmtopng)
+  (search-executable
+   (if (eq? PLATFORM 'windows)
+       '("pnmtopng.exe")
+       '("pnmtopng"))))
 
-  (with-pbm))
+(define (scale-down-image factor file)
+  (let* ((port-tmp1 (make-tmpfile))
+         (tmp1-name (port-filename port-tmp1))
+         (port-tmp2 (make-tmpfile))
+         (tmp2-name (port-filename port-tmp2))
+         ;; Netpbm commands (pngtopnm, pnmscale, pnmtopng)
+         ;; outputs only standard output instead of a file.
+         ;; So we need pipe and redirection.
+         ;; However, ly:system can't handle them.
+         ;; Therefore, we use ly:system-with-shell.
+         (cmd
+          (ly:format
+           "~a \"~a\" | ~a -reduce ~a | ~a -compression 9 > \"~a\""
+           (search-pngtopam) tmp1-name
+           (search-pamscale) factor
+           (search-pnmtopng)
+           tmp2-name)))
+
+    (close-port port-tmp1)
+    (close-port port-tmp2)
+    (ly:debug (_ "Copying `~a' to `~a'...") file tmp1-name)
+    (copy-binary-file file tmp1-name)
+    (ly:system-with-shell cmd)
+    (ly:debug (_ "Copying `~a' to `~a'...") tmp2-name file)
+    (copy-binary-file tmp2-name file)
+    (ly:debug (_ "Deleting `~a'...") tmp1-name)
+    (delete-file tmp1-name)
+    (ly:debug (_ "Deleting `~a'...") tmp2-name)
+    (delete-file tmp2-name)))
 
 (define-public (ps-page-count ps-name)
   (let* ((byte-count 10240)
@@ -96,7 +91,7 @@
                                   header))))
     (if match (string->number (match:substring match 1)) 0)))
 
-(define-public (make-ps-images ps-name . rest)
+(define-public (make-ps-images base-name tmp-name is-eps . rest)
   (let-keywords*
    rest #f
    ((resolution 90)
@@ -114,61 +109,58 @@
                       ((string-contains format-str "jpeg") "jpeg")
                       (else
                        (ly:error "Unknown pixmap format ~a" pixmap-format))))
-          (base (string-join
-                 (string-split (dir-basename ps-name ".ps" ".eps") #\%)
-                 "%%"))
-          (png1 (format #f "~a.~a" base extension))
-          (pngn (format #f "~a-page%d.~a" base extension))
-          (page-count (ps-page-count ps-name))
+          (png1 (format #f "~a.~a" base-name extension))
+          (pngn (format #f "~a-page%d.~a" base-name extension))
+          (page-count (ps-page-count tmp-name))
           (multi-page? (> page-count 1))
-          (output-file (if multi-page? pngn png1))
 
-          (gs-variable-options
-           (if (string-suffix-ci? ".eps" ps-name)
-               "-dEPSCrop"
-               (format #f "-dDEVICEWIDTHPOINTS=~,2f -dDEVICEHEIGHTPOINTS=~,2f"
-                       page-width page-height)))
-          (cmd (ly:format "~a\
- ~a\
- ~a\
- -dGraphicsAlphaBits=4\
- -dTextAlphaBits=4\
- -dNOPAUSE\
- -sDEVICE=~a\
- -sOutputFile=~S\
- -r~a\
- ~S\
- -c quit"
-                          (search-gs)
-                          (if be-verbose "" "-q")
-                          gs-variable-options
-                          pixmap-format
-                          output-file
-                          (* anti-alias-factor resolution) ps-name))
-          (status 0)
+          ;; Escape `%' (except `page%d') for ghostscript
+          (base-name-gs (string-join
+                         (string-split base-name #\%)
+                         "%%"))
+          (png1-gs (format #f "~a.~a" base-name-gs extension))
+          (pngn-gs (format #f "~a-page%d.~a" base-name-gs extension))
+          (output-file (if multi-page? pngn-gs png1-gs))
+
+          (*unspecified* (if #f #f))
+          (cmd
+           (remove (lambda (x) (eq? x *unspecified*))
+                   (list
+                    (search-gs)
+                    (if (ly:get-option 'verbose) *unspecified* "-q")
+                    (if (or (ly:get-option 'gs-load-fonts)
+                            (ly:get-option 'gs-load-lily-fonts)
+                            (eq? PLATFORM 'windows))
+                        "-dNOSAFER"
+                        "-dSAFER")
+
+                    (if is-eps
+                        "-dEPSCrop"
+                        (ly:format "-dDEVICEWIDTHPOINTS=~$" page-width))
+                    (if is-eps
+                        *unspecified*
+                        (ly:format "-dDEVICEHEIGHTPOINTS=~$" page-height))
+                    "-dGraphicsAlphaBits=4"
+                    "-dTextAlphaBits=4"
+                    "-dNOPAUSE"
+                    "-dBATCH"
+                    (ly:format "-sDEVICE=~a" pixmap-format)
+                    "-dAutoRotatePages=/None"
+                    "-dPrinted=false"
+                    (string-append "-sOutputFile=" output-file)
+                    (ly:format "-r~a" (* anti-alias-factor resolution))
+                    (string-append "-f" tmp-name))))
           (files '()))
 
-     ;; The wrapper on windows cannot handle `=' signs,
-     ;; gs has a workaround with #.
-     (if (eq? PLATFORM 'windows)
-         (begin
-           (set! cmd (re-sub "=" "#" cmd))
-           (set! cmd (re-sub "-dSAFER " "" cmd))))
-
-     (set! status (my-system be-verbose #f cmd))
+     (ly:system cmd)
 
      (set! files
            (if multi-page?
                (map
                 (lambda (n)
-                  (format #f "~a-page~a.png" base (1+ n)))
+                  (format #f "~a-page~a.png" base-name (1+ n)))
                 (iota page-count))
-               (list (format #f "~a.png" base))))
-
-     (if (not (= 0 status))
-         (begin
-           (for-each delete-file files)
-           (exit 1)))
+               (list (format #f "~a.png" base-name))))
 
      (if (and rename-page-1 multi-page?)
          (begin
@@ -180,5 +172,5 @@
 
      (if (not (= 1 anti-alias-factor))
          (for-each
-          (lambda (f) (scale-down-image be-verbose anti-alias-factor f)) files))
+          (lambda (f) (scale-down-image anti-alias-factor f)) files))
      files)))

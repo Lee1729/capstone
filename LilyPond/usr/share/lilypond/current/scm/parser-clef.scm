@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 2004--2012 Han-Wen Nienhuys <hanwen@xs4all.nl>
+;;;; Copyright (C) 2004--2015 Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
 ;;;; it under the terms of the GNU General Public License as published by
@@ -25,18 +25,26 @@
     ("violin" . ("clefs.G" -2 0))
     ("G" . ("clefs.G" -2 0))
     ("G2" . ("clefs.G" -2 0))
+    ("GG" . ("clefs.GG" -2 0))
+    ("tenorG" . ("clefs.tenorG" -2 0))
     ("french" . ("clefs.G" -4 0))
     ("soprano" . ("clefs.C" -4 0))
     ("mezzosoprano" . ("clefs.C" -2 0))
     ("alto" . ("clefs.C" 0 0))
     ("C" . ("clefs.C" 0 0))
+    ("varC" . ("clefs.varC" 0 0))
+    ("altovarC" . ("clefs.varC" 0 0))
     ("tenor" . ("clefs.C" 2 0))
+    ("tenorvarC" . ("clefs.varC" 2 0))
     ("baritone" . ("clefs.C" 4 0))
+    ("baritonevarC" . ("clefs.varC" 4 0))
     ("varbaritone" . ("clefs.F" 0 0))
+    ("baritonevarF" . ("clefs.F" 0 0))
     ("bass" . ("clefs.F" 2 0))
     ("F" . ("clefs.F" 2 0))
     ("subbass" . ("clefs.F" 4 0))
     ("percussion" . ("clefs.percussion" 0 0))
+    ("varpercussion" . ("clefs.varpercussion" 0 0))
     ("tab" . ("clefs.tab" 0 0))
 
     ;; should move mensural stuff to separate file?
@@ -79,10 +87,13 @@
     ("petrucci-c3" . ("clefs.petrucci.c3" 0 0))
     ("petrucci-c4" . ("clefs.petrucci.c4" 2 0))
     ("petrucci-c5" . ("clefs.petrucci.c5" 4 0))
+    ("petrucci-f2" . ("clefs.petrucci.f" -2 0))
     ("petrucci-f3" . ("clefs.petrucci.f" 0 0))
     ("petrucci-f4" . ("clefs.petrucci.f" 2 0))
     ("petrucci-f5" . ("clefs.petrucci.f" 4 0))
     ("petrucci-f" . ("clefs.petrucci.f" 2 0))
+    ("petrucci-g1" . ("clefs.petrucci.g" -4 0))
+    ("petrucci-g2" . ("clefs.petrucci.g" -2 0))
     ("petrucci-g" . ("clefs.petrucci.g" -2 0))
     ("kievan-do" . ("clefs.kievan.do" 0 0))))
 
@@ -90,9 +101,13 @@
 ;; that symbol"
 (define c0-pitch-alist
   '(("clefs.G" . -4)
+    ("clefs.GG" . 3)
+    ("clefs.tenorG" . 3)
     ("clefs.C" . 0)
+    ("clefs.varC" . 0)
     ("clefs.F" . 4)
     ("clefs.percussion" . 0)
+    ("clefs.varpercussion" . 0)
     ("clefs.tab" . 0 )
     ("clefs.vaticana.do" . 0)
     ("clefs.vaticana.fa" . 4)
@@ -111,55 +126,39 @@
     ("clefs.petrucci.c3" . 0)
     ("clefs.petrucci.c4" . 0)
     ("clefs.petrucci.c5" . 0)
+    ("clefs.petrucci.f2" . 4)
+    ("clefs.petrucci.f3" . 4)
+    ("clefs.petrucci.f4" . 4)
+    ("clefs.petrucci.f5" . 4)
     ("clefs.petrucci.f" . 4)
+    ("clefs.petrucci.g1" . -4)
+    ("clefs.petrucci.g2" . -4)
     ("clefs.petrucci.g" . -4)
     ("clefs.kievan.do" . 0)))
 
 (define-public (make-clef-set clef-name)
   "Generate the clef setting commands for a clef with name @var{clef-name}."
-  (define (make-prop-set props)
-    (let ((m (make-music 'PropertySet)))
-      (for-each (lambda (x) (set! (ly:music-property m (car x)) (cdr x))) props)
-      m))
-  (let ((e '())
-        (c0 0)
-        (oct 0)
-        (style 'default)
-        (match (string-match "^(.*)([_^])([^0-9a-zA-Z]*)([1-9][0-9]*)([^0-9a-zA-Z]*)$" clef-name)))
-    (if match
-        (begin
-          (set! clef-name (match:substring match 1))
-          (set! oct
-                (* (if (equal? (match:substring match 2) "^") -1 1)
-                   (- (string->number (match:substring match 4)) 1)))
-          (set! style
-                (cond ((equal? (match:substring match 3) "(") 'parenthesized)
+  (let* ((match (string-match "^(.*)([_^])([^0-9a-zA-Z]*)([1-9][0-9]*)([^0-9a-zA-Z]*)$" clef-name))
+         (e (assoc-get (if match (match:substring match 1) clef-name) supported-clefs))
+         (oct (if match
+                  ((if (equal? (match:substring match 2) "^") - +)
+                   (1- (string->number (match:substring match 4))))
+                  0))
+         (style (cond ((not match) 'default)
+                      ((equal? (match:substring match 3) "(") 'parenthesized)
                       ((equal? (match:substring match 3) "[") 'bracketed)
-                      (else style)))))
-    (set! e (assoc-get clef-name supported-clefs))
+                      (else 'default))))
     (if e
-        (let* ((prop-list `(((symbol . clefGlyph) (value . ,(car e)))
-                            ((symbol . middleCClefPosition)
-                             (value . ,(+ oct
-                                          (cadr e)
-                                          (assoc-get (car e) c0-pitch-alist))))
-                            ((symbol . clefPosition) (value . ,(cadr e)))
-                            ((symbol . clefTransposition) (value . ,(- oct)))))
-               ;; the clefTranspositionStyle property is set only when
-               ;; not 'default to calm display-lily-tests.scm
-               (prop-list (if (eq? style 'default)
-                              prop-list
-                              (append
-                               prop-list
-                               `(((symbol . clefTranspositionStyle)
-                                  (value . ,style))))))
-               (musics (map make-prop-set prop-list))
-               (recalc-mid-C (make-music 'ApplyContext))
-               (seq (make-music 'SequentialMusic
-                                'elements (append musics (list recalc-mid-C))))
-               (csp (make-music 'ContextSpeccedMusic)))
-          (set! (ly:music-property recalc-mid-C 'procedure) ly:set-middle-C!)
-          (context-spec-music seq 'Staff))
+        (let ((musics (list
+                       (make-property-set 'clefGlyph (car e))
+                       (make-property-set 'middleCClefPosition
+                                          (+ oct (cadr e)
+                                             (assoc-get (car e) c0-pitch-alist)))
+                       (make-property-set 'clefPosition (cadr e))
+                       (make-property-set 'clefTransposition (- oct))
+                       (make-property-set 'clefTranspositionStyle style)
+                       (make-apply-context ly:set-middle-C!))))
+          (context-spec-music (make-sequential-music musics) 'Staff))
         (begin
           (ly:warning (_ "unknown clef type `~a'") clef-name)
           (ly:warning (_ "supported clefs: ~a")
@@ -175,6 +174,7 @@
       (middleCClefPosition . middleCCuePosition)
       (clefPosition . cueClefPosition)
       (clefTransposition . cueClefTransposition)
+      (clefTranspositionFormatter . cueClefTranspositionFormatter)
       (clefTranspositionStyle . cueClefTranspositionStyle)))
   (let ((clef (make-clef-set clef-name)))
     (for-each

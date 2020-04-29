@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 2005--2012 Jan Nieuwenhuizen <janneke@gnu.org>
+;;;; Copyright (C) 2005--2015 Jan Nieuwenhuizen <janneke@gnu.org>
 ;;;; Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
@@ -32,13 +32,29 @@
           ;; hmmm.  what's the best failure option?
           (throw 'ly-file-failed)))))
 
-(define-public (sanitize-command-option str)
-  "Kill dubious shell quoting."
-
-  (string-append
-   "\""
-   (regexp-substitute/global #f "[^-_ 0-9,.a-zA-Z'\"\\]" str 'pre 'post)
-   "\""))
+;; ly:system can't handle pipe and redirection.
+;; This procedure can handle them by using shell.
+(define-public (ly:system-with-shell command)
+  (let ((s (if (eq? PLATFORM 'windows)
+               ;; MinGW (except Cygwin): Use COMSPEC (cmd.exe)
+               ;; FIXME: Command window is displayed briefly
+               (list (or (getenv "COMSPEC")
+                         "cmd.exe")
+                     "/c")
+               ;; POSIX (also Cygwin): Use /bin/sh
+               (list "/bin/sh"
+                     "-c")))
+        (c (list (if (eq? PLATFORM 'windows)
+                     ;; MinGW hack: Double quotes can not be used here.
+                     ;; So we remove them.
+                     ;; FIXME: The filename that contains space
+                     ;; can't be handled.
+                     (string-join (string-split command #\") "")
+                     ;; Other environments (also Cygwin):
+                     ;; Double quotes can be used. Pass through.
+                     command
+                     ))))
+    (ly:system (append s c))))
 
 (define-public (search-executable names)
   (define (helper path lst)
@@ -55,11 +71,9 @@
   ;; must be sure that we don't catch stuff from old GUBs.
   (search-executable '("gs")))
 
-(define-public (postscript->pdf paper-width paper-height name)
-  (let* ((pdf-name (string-append
-                    (dir-basename name ".ps" ".eps")
-                    ".pdf"))
-         (is-eps (string-match "\\.eps$" name))
+(define-public (postscript->pdf paper-width paper-height
+                                base-name tmp-name is-eps)
+  (let* ((pdf-name (string-append base-name ".pdf"))
          (*unspecified* (if #f #f))
          (cmd
           (remove (lambda (x) (eq? x *unspecified*))
@@ -83,24 +97,27 @@
                    "-dBATCH"
                    "-r1200"
                    "-sDEVICE=pdfwrite"
+                   "-dAutoRotatePages=/None"
+                   "-dPrinted=false"
                    (string-append "-sOutputFile="
                                   (string-join
                                    (string-split pdf-name #\%)
                                    "%%"))
                    "-c.setpdfwrite"
-                   (string-append "-f" name)))))
+                   (string-append "-f" tmp-name)))))
 
     (ly:message (_ "Converting to `~a'...\n") pdf-name)
     (ly:system cmd)))
 
-(define-public (postscript->png resolution paper-width paper-height name)
+(define-public (postscript->png resolution paper-width paper-height
+                                base-name tmp-name is-eps)
   (let* ((verbose (ly:get-option 'verbose))
          (rename-page-1 #f))
 
     ;; Do not try to guess the name of the png file,
     ;; GS produces PNG files like BASE-page%d.png.
     (ly:message (_ "Converting to ~a...") "PNG")
-    (make-ps-images name
+    (make-ps-images base-name tmp-name is-eps
                     #:resolution resolution
                     #:page-width paper-width
                     #:page-height paper-height
@@ -110,23 +127,86 @@
                     #:pixmap-format (ly:get-option 'pixmap-format))
     (ly:progress "\n")))
 
-(define-public (postprocess-output paper-book module filename formats)
-  (let* ((completed (completize-formats formats))
-         (base (dir-basename filename ".ps" ".eps"))
-         (intermediate (remove (lambda (x) (member x formats)) completed)))
-    (for-each (lambda (f)
-                ((eval (string->symbol (format #f "convert-to-~a" f))
-                       module) paper-book filename)) completed)
-    (if (ly:get-option 'delete-intermediate-files)
-        (for-each (lambda (f)
-                    (if (file-exists? f) (delete-file f)))
-                  (map (lambda (x) (string-append base "." x)) intermediate)))))
+(define-public (postscript->ps base-name tmp-name is-eps)
+  (let* ((ps-name (string-append base-name
+                                 (if is-eps ".eps" ".ps"))))
+    (if (not (equal? ps-name tmp-name))
+        (begin
+          (ly:message (_ "Copying to `~a'...\n") ps-name)
+          (copy-binary-file tmp-name ps-name)))))
 
-(define-public (completize-formats formats)
+(define-public (copy-binary-file from-name to-name)
+  (if (eq? PLATFORM 'windows)
+      ;; MINGW hack: MinGW Guile's copy-file is broken.
+      ;; It opens files by the text mode instead of the binary mode.
+      ;; (It is fixed from Guile 2.0.9.)
+      ;; By the text mode, copied binary files are broken.
+      ;; So, we open files by the binary mode and copy by ourselves.
+      (let ((port-from (open-file from-name "rb"))
+            (port-to (open-file to-name "wb")))
+        (let loop((c (read-char port-from)))
+          (if (eof-object? c)
+              (begin (close port-from)
+                     (close port-to))
+              (begin (write-char c port-to)
+                     (loop (read-char port-from))))))
+      ;; Cygwin and other platforms:
+      ;; Pass through to copy-file
+      (copy-file from-name to-name)))
+
+(define-public (make-tmpfile)
+  (let* ((tmpl
+          (string-append (cond
+                          ;; MINGW hack: TMP / TEMP may include
+                          ;; unusable characters (Unicode etc.).
+                          ((eq? PLATFORM 'windows) "./tmp-")
+                          ;; Cygwin can handle any characters
+                          ;; including Unicode.
+                          ((eq? PLATFORM 'cygwin) (string-append
+                                                   (or (getenv "TMP")
+                                                       (getenv "TEMP"))
+                                                   "/"))
+                          ;; Other platforms (POSIX platforms)
+                          ;; use TMPDIR or /tmp.
+                          (else (string-append
+                                 (or (getenv "TMPDIR")
+                                     "/tmp")
+                                 "/")))
+                          "lilypond-XXXXXX"))
+         (port-tmp (mkstemp! tmpl)))
+    (if (eq? PLATFORM 'windows)
+        ;; MINGW hack: MinGW Guile's mkstemp! is broken.
+        ;; It creates a file by the text mode instead of the binary mode.
+        ;; (It is fixed from Guile 2.0.9.)
+        ;; We need the binary mode for embeddings CFFs.
+        ;; So, we re-open the same file by the binary mode.
+        (let* ((filename (port-filename port-tmp))
+               (port (open-file filename "r+b")))
+          (close port-tmp)
+          port)
+        ;; Cygwin and other platforms:
+        ;; Pass through the return value of mkstemp!
+        port-tmp)))
+
+(define-public (postprocess-output paper-book module formats
+                                   base-name tmp-name is-eps)
+  (let* ((completed (completize-formats formats is-eps)))
+    (for-each (lambda (f)
+                ((eval (string->symbol (format #f "convert-to-~a" f)) module)
+                 paper-book base-name tmp-name is-eps)) completed)
+    (if (and (ly:get-option 'delete-intermediate-files)
+             (or (not is-eps)
+                 (not (member "ps" completed)))
+             (file-exists? tmp-name))
+        (begin (ly:message (_ "Deleting `~a'...\n") tmp-name)
+               (delete-file tmp-name)))))
+
+(define-public (completize-formats formats is-eps)
   (define new-fmts '())
-  (if (member "png" formats)
+  (if (and is-eps (member "eps" formats))
       (set! formats (cons "ps" formats)))
-  (if (member "pdf" formats)
+  (if (not (or (member "pdf" formats)
+               (member "png" formats)))
       (set! formats (cons "ps" formats)))
   (for-each (lambda (x)
               (if (member x formats) (set! new-fmts (cons x new-fmts))))
@@ -204,9 +284,6 @@
      (module-remove! output-module x))
    missing-stencil-list))
 
-(define (filter-out pred? lst)
-  (filter (lambda (x) (not (pred? x))) lst))
-
 (define-public (font-name-split font-name)
   "Return @code{(FONT-NAME . DESIGN-SIZE)} from @var{font-name} string
 or @code{#f}."
@@ -240,12 +317,12 @@ definition."
 
   (let* ((font-list (ly:paper-fonts paper))
          (pango-fonts (filter ly:pango-font? font-list))
-         (other-fonts (filter-out ly:pango-font? font-list))
+         (other-fonts (remove ly:pango-font? font-list))
          (other-font-names (map ly:font-name other-fonts))
          (pango-only-fonts
-          (filter-out (lambda (x)
-                        (member (pango-font-name x) other-font-names))
-                      pango-fonts)))
+          (remove (lambda (x)
+                    (member (pango-font-name x) other-font-names))
+                  pango-fonts)))
 
     (define (font-load-command font)
       (let* ((font-name (ly:font-name font))

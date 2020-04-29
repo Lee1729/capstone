@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 1998--2012 Jan Nieuwenhuizen <janneke@gnu.org>
+;;;; Copyright (C) 1998--2015 Jan Nieuwenhuizen <janneke@gnu.org>
 ;;;; Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
@@ -24,7 +24,11 @@
   #:use-module (ice-9 optargs)
   #:export (safe-objects)
   #:export-syntax (define-safe-public)
-  #:re-export-syntax (define*-public))
+  #:re-export-syntax (define*))
+
+(if (string>? (version) "1.9.10")
+    (use-modules (ice-9 curried-definitions)))
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Safe definitions utility
@@ -44,8 +48,9 @@ LilyPond safe mode.  The syntax is the same as `define*-public'."
 
   (let ((safe-symbol (get-symbol arglist)))
     `(begin
-       (define*-public ,arglist
+       (define* ,arglist
          ,@body)
        (set! safe-objects (cons (cons ',safe-symbol ,safe-symbol)
                                 safe-objects))
+       (export ,safe-symbol)
        ,safe-symbol)))

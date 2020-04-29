@@ -1,4 +1,4 @@
-#!/home/gub/gub/target/tools/root/usr/bin/python
+#!/home/gub/NewGub/gub/target/tools/root/usr/bin/python
 """An RFC 2821 smtp proxy.
 
 Usage: %(program)s [options] [localhost:localport [remotehost:remoteport]]

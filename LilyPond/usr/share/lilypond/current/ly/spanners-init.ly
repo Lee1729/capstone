@@ -1,4 +1,16 @@
-\version "2.16.0"
+\version "2.19.29"
+
+"\\=" =
+#(define-event-function (id event) (key? ly:event?)
+  (_i "This sets the @code{spanner-id} property of the following
+@var{event} to the given @var{id} (non-negative integer or symbol).
+This can be used to tell LilyPond how to connect overlapping
+or parallel slurs or phrasing slurs within a single @code{Voice}.
+@lilypond[quote,verbatim]
+\\fixed c' { c\\=1( d\\=2( e\\=1) f\\=2) }
+@end lilypond\n")
+  (set! (ly:music-property event 'spanner-id) id)
+  event)
 
 startGroup = #(make-span-event 'NoteGroupingEvent START)
 stopGroup = #(make-span-event 'NoteGroupingEvent STOP)
@@ -7,7 +19,7 @@ stopGroup = #(make-span-event 'NoteGroupingEvent STOP)
 cr = #(make-span-event 'CrescendoEvent START)
 decr = #(make-span-event 'DecrescendoEvent START)
 enddecr = #(make-span-event 'DecrescendoEvent STOP)
-endcr = #(make-span-event 'CrescendoEvent STOP) 
+endcr = #(make-span-event 'CrescendoEvent STOP)
 
 
 startMeasureCount = #(make-span-event 'MeasureCounterEvent START)
@@ -50,14 +62,14 @@ deprecateddim =  {
 
 deprecatedenddim =  {
   $(make-event-chord (list enddecr))
-%  \unset decrescendoText 
-%  \unset decrescendoSpanner 
+%  \unset decrescendoText
+%  \unset decrescendoSpanner
 }
 
 deprecatedendcresc =  {
   $(make-event-chord (list endcr))
-%  \unset crescendoText 
-%  \unset crescendoSpanner 
+%  \unset crescendoText
+%  \unset crescendoSpanner
 }
 
 
@@ -84,13 +96,13 @@ dimTextDim = {
 }
 
 crescHairpin = {
-    \unset crescendoText 
-    \unset crescendoSpanner 
+    \unset crescendoText
+    \unset crescendoSpanner
 }
 
 dimHairpin = {
-    \unset decrescendoText 
-    \unset decrescendoSpanner 
+    \unset decrescendoText
+    \unset decrescendoSpanner
 }
 
 

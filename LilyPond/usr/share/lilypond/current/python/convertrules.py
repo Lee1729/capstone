@@ -1759,13 +1759,7 @@ def conv (str):
 @rule ((2, 1, 27), "property transposing -> tuning")
 def conv (str):
     def subst (m):
-        g = int (m.group (2))
-        o = g / 12
-        g -= o * 12
-        if g <  0:
-            g += 12
-            o -= 1
-
+        (o, g) = divmod (int (m.group (2)), 12)
 
         lower_pitches = filter (lambda x : x <= g, [0, 2, 4, 5, 7, 9, 11, 12])
         s = len (lower_pitches) -1
@@ -1774,10 +1768,11 @@ def conv (str):
 
         str = 'cdefgab' [s]
         str += ['eses', 'es', '', 'is', 'isis'][a + 2]
+        o += 1                  # c' is octave 0
         if o < 0:
-            str += ',' * (-o - 1)
-        elif o >= 0:
-            str += "'" * (o + 1)
+            str += (-o) * ","
+        elif o > 0:
+            str += o * "'"
 
         return '\\transposition %s ' % str
 
@@ -2818,7 +2813,7 @@ def conv(str):
     if re.search(r'\\oldaddlyrics', str):
         stderr_write (NOT_SMART % "oldaddlyrics")
         stderr_write (_ ("oldaddlyrics is no longer supported. \n \
-        Use addlyrics or lyrsicsto instead.\n"))
+        Use addlyrics or lyricsto instead.\n"))
         stderr_write (UPDATE_MANUALLY)
         raise FatalConversionError ()
     return str
@@ -2846,7 +2841,7 @@ def conv(str):
     if re.search("(Slur|Tie)\w+#\'dash-fraction", str) \
         or re.search("(Slur|Tie)\w+#\'dash-period", str):
         stderr_write (NOT_SMART % "dash-fraction, dash-period")
-        stderr_write (_ ("Dash parameters for slurs and ties are now in \'dash-details.\n"))
+        stderr_write (_ ("Dash parameters for slurs and ties are now in \'dash-definition.\n"))
         stderr_write (UPDATE_MANUALLY)
     return str
 
@@ -3218,7 +3213,6 @@ def paren_matcher (n):
     # parens inside; add the outer parens yourself if needed.
     # Nongreedy.
     return r"[^()]*?(?:\("*n+r"[^()]*?"+r"\)[^()]*?)*?"*n
-    return
 
 def undollar_scm (m):
     return re.sub (r"\$(.?)", r"\1", m.group (0))
@@ -3298,12 +3292,16 @@ def brace_matcher (n):
     return r"[^{}]*?(?:{"*n+r"[^{}]*?"+r"}[^{}]*?)*?"*n
 
 matchstring = r'"(?:[^"\\]|\\.)*"'
-matcharg = (r"\s+(?:[$#]['`]?\s*(?:[a-zA-Z]\S*|" + matchstring + r"|\("
-            + paren_matcher(20) + r"\))|" + matchstring + r"|\\[a-z_A-Z]+)")
-matchmarkup = (r'(?:\\markup\s*(?:{' + brace_matcher (20) +r'}|' +
-               matchstring + r'|(?:\\[a-z_A-Z][a-z_A-Z-]*(?:' + matcharg +
-               r')*?\s*)*(?:' + matchstring + "|{" + brace_matcher (20) +
-               "}))|" + matchstring + ")")
+matcharg = (r"\s+(?:[$#]['`]?\s*(?:[a-zA-Z][^ \t\n()\\]*|" + matchstring
+            + r"|#?\(" + paren_matcher(20) + r"\)|"
+            + r"-?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)|"
+            + r"#(?:[tf]|\\.|@?\{" + brace_matcher (10) + r"#@?\}))|"
+            + matchstring + r"|\\[a-z_A-Z]+|[0-9]+(?:/[0-9]+)?|-[0-9]+)")
+matchfullmarkup = (r'\\markup\s*(?:@?\{' + brace_matcher (20) +r'\}|' +
+                   matchstring + r'|(?:\\[a-z_A-Z][a-z_A-Z-]*(?:' + matcharg +
+                   r')*?\s*)*(?:' + matchstring + r"|@?\{" + brace_matcher (20) +
+                   r"\}))")
+matchmarkup = "(?:" + matchstring + "|" + matchfullmarkup + ")"
 
 @rule((2, 15, 25), r"\(auto)?Footnote(Grob)? -> \footnote")
 def conv (str):
@@ -3355,7 +3353,7 @@ def conv (str):
                 return m.group (0)
             return m.expand (s)
         return match_fun
-    str = re.sub ("(" + matchmarkup + ")|"
+    str = re.sub ("(" + matchfullmarkup + ")|"
                   + r"(\\footnote(?:\s*"
                   + matchmarkup + ")?" + matcharg + "(?:" + matcharg
                   + ")?\s+" + matchmarkup + ")",
@@ -3374,7 +3372,7 @@ def conv (str):
     str = re.sub (r"(\\set\s+)stringTuning", r"\1Staff.stringTuning", str)
     return str
 
-wordsyntax = r"[a-zA-Z\200-\377](?:[-_]?[a-zA-Z\200-\377])*"
+wordsyntax = r"[a-zA-Z\200-\377]+(?:[-_][a-zA-Z\200-\377]+)*"
 
 @rule ((2, 15, 43), r'"custom-tuning" = -> custom-tuning =')
 def conv (str):
@@ -3424,15 +3422,22 @@ def conv(str):
     str = re.sub (barstring + r'"empty"', '\\1\\2"-"', str)
     return str
 
-symbol_list = (r"#'(?:" + wordsyntax + r"|\(\s*(?:" + wordsyntax + r"\s+)*"
-               + wordsyntax + r"\s*\))")
+symbol_list = (r"#'(?:" + wordsyntax + r"|\(\s*" + wordsyntax
+               + r"(?:\s+" + wordsyntax + r")*\s*\))")
 
-grob_path = r"(?:" + symbol_list + r"\s+)*" + symbol_list
+grob_path = symbol_list + r"(?:\s+" + symbol_list + r")*"
 
 grob_spec = wordsyntax + r"(?:\s*\.\s*" + wordsyntax + r")?"
 
 def path_replace (m):
     return m.group (1) + string.join (re.findall (wordsyntax, m.group (2)), ".")
+
+# The following regexp appears to be unusually expensive to compile,
+# so we do it only once instead of for every file
+footnotec = re.compile ("(" + matchfullmarkup + ")|"
+                        + r"(\\footnote(?:\s*"
+                        + matchmarkup + ")?" + matcharg + ")(" + matcharg
+                        + r")?(\s+" + matchmarkup + r")(\s+\\default)?")
 
 @rule ((2, 17, 6), r"""\accidentalStyle #'Context "style" -> \accidentalStyle Context.style
 \alterBroken "Context.grob" -> \alterBroken Context.grob
@@ -3450,7 +3455,7 @@ def conv (str):
         if m.group (1):
             return m.group (0)
         x = m.group (2) + m.group (4)
-        
+
         if m.group (3):
             x = x + re.sub (r"(\s*)(" + symbol_list + ")", fn_path_replace,
                             m.group (3))
@@ -3465,15 +3470,11 @@ def conv (str):
                   r"\1\2.\3", str)
     str = re.sub (r'''(\\(?:alterBroken|overrideProperty)\s+)#?"([A-Za-z]+)\s*\.\s*([A-Za-z]+)"''',
                   r"\1\2.\3", str)
-    str = re.sub (r'''(\\tweak\s+)#?"?([A-Za-z]+)"?\s+?#'([-A-Za-z]+)''',
+    str = re.sub (r'''(\\tweak\s+)#?"?([A-W][A-Za-z]*)"?\s+?#'([a-zX-Z][-A-Za-z]*)''',
                   r"\1\2.\3", str)
-    str = re.sub (r'''(\\tweak\s+)#'([-A-Za-z]+)''',
+    str = re.sub (r'''(\\tweak\s+)#'([a-zX-Z][-A-Za-z]*)''',
                   r"\1\2", str)
-    str = re.sub ("(" + matchmarkup + ")|"
-                  + r"(\\footnote(?:\s*"
-                  + matchmarkup + ")?" + matcharg + ")(" + matcharg
-                  + r")?(\s+" + matchmarkup + r")(\s+\\default)?",
-                  patrep, str)
+    str = footnotec.sub (patrep, str)
     str = re.sub (r'''(\\alterBroken)(\s+[A-Za-z.]+)(''' + matcharg
                   + matcharg + ")", r"\1\3\2", str)
     str = re.sub (r"(\\overrideProperty\s+)(" + grob_spec + r"\s+" + grob_path + ")",
@@ -3559,7 +3560,7 @@ def conv(str):
         # selection, we can't be sure.
         # Also if there is any selection of a non-do language.
         if (re.search ("^[^%\n]*\\{", m.string[:m.start()], re.M)
-            or re.search ('\\language\s(?!\s*#?"(?:catalan|espanol|español|italiano|français|portugues|vlaams))"', str)):
+            or re.search (r'\\language\s(?!\s*#?"(?:catalan|espanol|español|italiano|français|portugues|vlaams))"', str)):
             do = "$(ly:make-pitch 0 0)"
         else:
             do = "do'"
@@ -3665,7 +3666,7 @@ def conv(str):
 
 @rule((2, 17, 27), r'''\stringTuning \notemode -> \stringTuning''')
 def conv(str):
-    str = re.sub (r"\\stringTuning\s*\\notemode(\s*)@?\{\s*(.*?)\s*@?}",
+    str = re.sub (r"\\stringTuning\s*\\notemode(\s*)@?\{\s*(.*?)\s*@?\}",
                   r"\\stringTuning\1\2", str)
     if re.search (r'[^-\w]staff-padding[^-\w]', str):
         stderr_write (NOT_SMART % "staff-padding")
@@ -3697,6 +3698,245 @@ def conv (str):
        _ ("bump version for release"))
 def conv (str):
     return str
+
+@rule ((2, 19, 2), r"\lyricsto \new/\context/... -> \new/\context/... \lyricsto")
+def conv (str):
+    word=r'(?:#?"[^"]*"|\b' + wordsyntax + r'\b)'
+    str = re.sub (r"(\\lyricsto\s*" + word + r"\s*)(\\(?:new|context)\s*" + word
+                  + r"(?:\s*=\s*" + word + r")?\s*)",
+                  r"\2\1", str)
+    str = re.sub (r"(\\lyricsto\s*" + word + r"\s*)\\lyricmode\b\s*",
+                  r"\1", str)
+    str = re.sub (r"(\\lyricsto\s*" + word + r"\s*)\\lyrics\b\s*",
+                  r"\\new Lyrics \1", str)
+    str = re.sub (r'\\lyricmode\s*(\\lyricsto\b)', r"\1", str)
+    return str
+
+@rule ((2, 19, 7), "keySignature -> keyAlterations")
+def conv(str):
+    str = re.sub (r'\bkeySignature\b', 'keyAlterations', str)
+    str = re.sub (r'\blastKeySignature\b', 'lastKeyAlterations', str)
+    str = re.sub (r'\blocalKeySignature\b', 'localAlterations', str)
+    return str
+
+@rule ((2, 19, 11), "thin-kern -> segno-kern")
+def conv(str):
+    str = re.sub (r'\bthin-kern\b', 'segno-kern', str)
+    return str
+
+# before_id is written in a manner where it will only substantially
+# (rather than as a lookbefore assertion) match material that could
+# not be part of a previous id.  In that manner, one replacement does
+# not inhibit an immediately adjacent replacement.
+
+before_id = r'(?:^|(?<!\\)(?:\\\\)+|(?<=[^-_\\a-zA-Z])|(?<=[^a-zA-Z][-_]))'
+
+# after_id is a pure lookbehind assertion so its match string is
+# always empty
+
+after_id = r'(?![a-zA-Z]|[-_][a-zA-Z])'
+
+@rule ((2, 19, 16), """implicitTimeSignatureVisibility -> initialTimeSignatureVisibility
+csharp -> c-sharp""")
+def conv(str):
+    str = re.sub (r'\bimplicitTimeSignatureVisibility\b', 'initialTimeSignatureVisibility', str)
+    str = re.sub ('(' + before_id + r'[a-g])((?:sharp){1,2}|(?:flat){1,2})'
+                  + after_id, r'\1-\2', str)
+    return str
+
+@rule ((2, 19, 22), """whiteout -> whiteout-box
+(define-xxx-function (parser location ...) -> (define-xxx-function (...)
+(xxx ... parser ...) -> (xxx ... ...)""")
+def conv(str):
+    # whiteout -> whiteout-box
+    str = re.sub (r"\\whiteout(?![a-z_-])", r"\\whiteout-box", str)
+    str = re.sub (r"\b\.whiteout(?![a-z_-])\b", r".whiteout-box", str)
+    str = re.sub (r"#'whiteout(?![a-z_-])\b", r"#'whiteout-box", str)
+    str = re.sub (r"\bstencil-whiteout\b", r"stencil-whiteout-box", str)
+    
+    # (define-xxx-function (parser location ...) -> (define-xxx-function (...)
+    def subst(m):
+        def subsub(m):
+            str = (m.group (1)
+                   + re.sub ('(?<=\s|["\\()])' + m.group (2) + r'(?=\s|["\\()])',
+                             r'(*location*)',
+                             re.sub (r'(?<=\s|["\\()])parser(?=\s|["\\()])',
+                                     r'(*parser*)', m.group (3))))
+            return str
+        return re.sub (r'(\([-a-z]+\s*\(+)parser\s+([-a-z]+)\s*((?:.|\n)*)$',
+                       subsub, m.group (0))
+    str = re.sub (r'\(define-(?:music|event|scheme|void)-function(?=\s|["(])'
+                  + paren_matcher (20) + r'\)', subst, str)
+
+    # (xxx ... parser ...) -> (xxx ... ...)
+    def repl (m):
+        return m.group (1) + inner (m.group (2))
+    def inner (str):
+        str = re.sub (r"(\((?:" +
+                      r"ly:parser-lexer|" +
+                      r"ly:parser-clone|" +
+                      r"ly:parser-output-name|" +
+                      r"ly:parser-error|" +
+                      r"ly:parser-define!|" +
+                      r"ly:parser-lookup|" +
+                      r"ly:parser-has-error\?|" +
+                      r"ly:parser-clear-error|" +
+                      r"ly:parser-set-note-names|" +
+                      r"ly:parser-include-string|" +
+                      r"note-names-language|" +
+                      r"display-lily-music|" +
+                      r"music->lily-string|" +
+                      r"note-name->lily-string|" +
+                      r"value->lily-string|"
+                      r"check-grob-path|" +
+                      r"event-chord-wrap!|" +
+                      r"collect-bookpart-for-book|" +
+                      r"collect-scores-for-book|" +
+                      r"collect-music-aux|" +
+                      r"collect-book-music-for-book|" +
+                      r"scorify-music|" +
+                      r"collect-music-for-book|" +
+                      r"collect-book-music-for-book|" +
+                      r"toplevel-book-handler|" +
+                      r"default-toplevel-book-handler|" +
+                      r"print-book-with-defaults|" +
+                      r"toplevel-music-handler|" +
+                      r"toplevel-score-handler|" +
+                      r"toplevel-text-handler|" +
+                      r"toplevel-bookpart-handler|" +
+                      r"book-music-handler|" +
+                      r"context-mod-music-handler|" +
+                      r"bookpart-music-handler|" +
+                      r"output-def-music-handler|" +
+                      r"print-book-with-defaults-as-systems|" +
+                      r"add-score|" +
+                      r"add-text|" +
+                      r"add-music|" +
+                      r"make-part-combine-music|" +
+                      r"make-directed-part-combine-music|" +
+                      r"add-quotable|" +
+                      r"paper-variable|" +
+                      r"make-autochange-music|" +
+                      r"context-mod-from-music|" +
+                      r"context-defs-from-music)" +
+                      r'(?=\s|[()]))(' + paren_matcher (20) + ")"
+                      r"(?:\s+parser(?=\s|[()])|\s*\(\*parser\*\))", repl, str)
+        return str
+    str = inner (str)
+    # This is the simplest case, resulting from one music function
+    # trying to call another one via Scheme.  The caller is supposed
+    # to have its uses of parser/location converted to
+    # (*parser*)/(*location*) already.  Other uses of
+    # ly:music-function-extract are harder to convert but unlikely.
+    str = re.sub (r'(\(\s*\(ly:music-function-extract\s+' + wordsyntax +
+                  r'\s*\)\s+)\(\*parser\*\)\s*\(\*location\*\)', r'\1',
+                  str)
+    return str
+
+@rule ((2, 19, 24), r"""music-has-type -> music-is-of-type?
+\applyOutput #'Context -> \applyOutput Context""")
+def conv (str):
+    str = re.sub (r'(?<=\s|["\\()])' + "music-has-type" + r'(?=\s|["\\()])',
+                  "music-is-of-type?", str)
+    str = re.sub (r"(\\applyOutput\s+)#'([a-zA-Z])", r"\1\2", str)
+    return str
+
+@rule ((2, 19, 28), r"c:5.x, c:5^x, c:sus -> c:3.5.x, c:3.5^x, c:5")
+def conv (str):
+    str = re.sub (r":5([.^][1-9])", r":3.5\1", str)
+    # row back for self-defeating forms
+    str = re.sub (r":3\.5((?:\.[0-9]+)*\^(?:[0-9]+\.)*)3\.", r":5\1", str)
+    str = re.sub (r":3\.5((?:\.[0-9]+)*\^?:[0-9]+(?:\.[0-9]+)*)\.3(?![.0-9])", r":5\1", str)
+    str = re.sub (r":3\.5((?:\.[0-9]+)*)\^3(?=\s|\})", r":5\1", str)
+    str = re.sub (r":sus(?=\s|\})", ":5", str)
+    str = re.sub (r":1\.5(?=\s|[.^}])", r":5", str)
+    return str
+
+@rule ((2, 19, 29), r"partcombine*Once -> \once \partcombine*")
+def conv(str):
+    str = re.sub (r"(\\partcombine(?:Apart|Chords|Unisono|SoloII?|Automatic))Once\b",
+                  r"\\once \1", str)
+    str = re.sub (r"(\\partcombineForce" + matcharg + r")\s*##f(\s)",
+                  r"\1\2", str)
+    str = re.sub (r"(\\partcombineForce" + matcharg + r")\s*##t(\s)",
+                  r"\\once \1\2", str)
+    return str
+
+@rule ((2, 19, 32), r"whiteout-box -> whiteout")
+def conv(str):
+    str = re.sub (r"\\whiteout-box(?![a-z_-])", r"\\whiteout", str)
+    str = re.sub (r"\b\.whiteout-box(?![a-z_-])\b", r".whiteout", str)
+    str = re.sub (r"#'whiteout-box(?![a-z_-])\b", r"#'whiteout", str)
+    return str
+
+@rule ((2, 19, 40), r"\time #'(2 3) ... -> \time 2,3 ...")
+def conv (str):
+    def repl (m):
+        return m.group(1) + re.sub (r"\s+", ",", m.group (2))
+
+    str = re.sub (r"(beatStructure\s*=\s*)#'\(([0-9]+(?:\s+[0-9]+)+)\)",
+                  repl, str)
+
+    str = re.sub (r"(\\time\s*)#'\(([0-9]+(?:\s+[0-9]+)+)\)", repl, str)
+    def repl (m):
+        subst = re.sub (r"\s+", ",", m.group (1))
+        return subst + (4 + len (m.group (1)) - len (subst)) * " " + m.group (2)
+
+    str = re.sub (r"#'\(([0-9]+(?:\s+[0-9]+)+)\)(\s+%\s*beatStructure)",
+                  repl, str)
+    return str
+
+@rule ((2, 19, 46), r"\context ... \modification -> \context ... \with \modification")
+def conv (str):
+    word=r'(?:#?"[^"]*"|\b' + wordsyntax + r'\b)'
+    mods = string.join (re.findall ("\n(" + wordsyntax + r")\s*=\s*\\with(?:\s|\\|\{)", str)
+                        + ['RemoveEmptyStaves','RemoveAllEmptyStaves'], "|")
+    str = re.sub (r"(\\(?:drums|figures|chords|lyrics|addlyrics|"
+                  + r"(?:new|context)\s*" + word
+                  + r"(?:\s*=\s*" + word + r")?)\s*)(\\(?:" + mods + "))",
+                  r"\1\\with \2", str)
+    return str
+
+@rule ((2, 19, 49), r"""id -> output-attributes.id or output-attributes
+for \tweak, \override, \overrideProperty, and \revert""")
+def conv (str):
+    # path cannot start with '-' or '_' and matches zero or more path
+    # units that each end in a dot
+    path = r"(?:[a-zA-Z\200-\377](?:[-_]?[a-zA-Z\200-\377])*(?:\s*\.\s*))*"
+
+    # Manual editing is needed when id is set to #(...) or \xxx
+    manual_edits = r"(\\(?:tweak|override|overrideProperty)\s+" + path + r")id(\s*=?\s*(?:\\|#\s*\())"
+    automatic = r"(\\(?:tweak|override|overrideProperty|revert)\s+" + path + r")id"
+    if re.search (manual_edits, str):
+        stderr_write (NOT_SMART % "\"output-attributes\"")
+        stderr_write (_ ("Previously the \"id\" grob property (string) was used for SVG output.") + "\n")
+        stderr_write (_ ("Now \"output-attributes\" (association list) is used instead.") + "\n")
+        stderr_write (UPDATE_MANUALLY)
+
+    # First, for manual editing cases we convert 'id' to 'output-attributes'
+    # because Grob.output-attributes.id = #(lambda ... ) will not work.
+    # Then for the rest we convert 'id' to 'output-attributes.id'
+    str = re.sub (manual_edits, r"\1output-attributes\2", str)
+    str = re.sub (automatic, r"\1output-attributes.id", str)
+    return str
+
+@rule ((2, 19, 80), r"""\markup-command #" -> \markup-command " """)
+def conv (str):
+    str = re.sub (r'(\\(?:fret-diagram(?:-terse)?|harp-pedal|justify-string'
+                  r'|lookup|musicglyph|postscript|simple|tied-lyric|verbatim-file'
+                  r'|with-url|wordwrap-string'
+                  r'|discant|freeBass|stdBass|stdBassIV|stdBassV|stdBassVI'
+                  r')\s*)[#$](\\?")',
+                  r'\1\2', str)
+    return str
+
+@rule ((2, 20, 0), r'''\language "deutsch": beh -> heh''')
+def conv (str):
+    changes = re.findall (r'\\language\s*#?"([a-zçñ]+)"', str)
+    if changes and (changes.count ('deutsch') == len (changes)):
+        str = re.sub (r'\bbeh\b', 'heh', str)
+    return str
+
 
 # Guidelines to write rules (please keep this at the end of this file)
 #

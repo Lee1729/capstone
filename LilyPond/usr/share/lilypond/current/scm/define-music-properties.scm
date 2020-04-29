@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 1998--2012  Han-Wen Nienhuys <hanwen@xs4all.nl>
+;;;; Copyright (C) 1998--2015  Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;;                 Jan Nieuwenhuizen <janneke@gnu.org>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
@@ -39,7 +39,9 @@ lettering should be incremented.")
 TODO: Consider making type into symbol.")
      (articulations ,ly:music-list?
                     "Articulation events specifically for this note.")
-     (associated-context ,string? "Name of the Voice context associated with
+     (associated-context ,string? "Name of the context associated with
+this @code{\\lyricsto} section.")
+     (associated-context-type ,symbol? "Type of the context associated with
 this @code{\\lyricsto} section.")
      (augmented ,boolean? "This figure is for an augmented figured
 bass (with @code{+} sign).")
@@ -65,9 +67,8 @@ cautionary accidental.")
      (change-to-id ,string? "Name of the context to change to.")
      (change-to-type ,symbol? "Type of the context to change to.")
      (class ,symbol? "The class name of an event class.")
-     (compress-procedure ,procedure? "Compress this music expression.
-Arg@tie{}1: the music, arg@tie{}2: factor.")
      (context ,ly:context? "The context to which an event is sent.")
+     (context-change-list ,list? "Context changes for @code{\\autochange} or @code{\\partcombine}.")
      (context-id ,string? "Name of context.")
      (context-type ,symbol?  "Type of context.")
      (create-new ,boolean? "Create a fresh context.")
@@ -90,13 +91,11 @@ simultaneous music, or the alternatives of repeated music.")
 a sequential iterator.  Takes a single music parameter.")
      (error-found ,boolean?
                   "If true, a parsing error was found in this expression.")
-     (events ,list? "A list of events contained in this event.")
 
      (figure ,integer? "A bass figure.")
      (footnote-text ,markup? "Text to appear in a footnote.")
      (force-accidental ,boolean? "If set, a cautionary accidental should
 always be printed on this note.")
-     (forced-type ,symbol? "Override for the part-combiner.")
 
      (grob-property ,symbol? "The symbol of the grob property to set.")
      (grob-property-path ,list? "A list of symbols, locating a nested grob
@@ -109,7 +108,7 @@ property, e.g., @code{(beamed-lengths details)}.")
      (iterator-ctor ,procedure? "Function to construct a
 @code{music-event-iterator} object for this music.")
 
-     (label ,markup? "Label of a mark.")
+     (label ,number-or-markup? "Label of a mark.")
      (last-pitch ,ly:pitch? "The last pitch after relativization.")
      (length ,ly:moment? "The duration of this music.")
      (length-callback ,procedure? "How to compute the duration of this music.
@@ -119,6 +118,12 @@ This property can only be defined as initializer in
 whether to allow, forbid or force a line break.")
 
      (metronome-count ,number-or-pair? "How many beats in a minute?")
+     (midi-extra-velocity ,integer? "How much louder or softer should
+this note be in MIDI output? The default is 0.")
+     (midi-length ,procedure? "Function to determine how long to play
+a note in MIDI. It should take a moment (the written length of the
+note) and a context, and return a moment (the length to play the
+note).")
      (moment ,ly:moment? "The moment at which an event happens.")
      (music-cause ,ly:music? "The music object that is the cause of
 an event.")
@@ -150,7 +155,6 @@ Options are @code{solo1}, @code{solo2} and @code{unisono}.")
 of a key signature.")
      (pop-first ,boolean? "Do a revert before we try to do an override
 on some grob property.")
-     (prob-property ,symbol? "The symbol of the prob property to set.")
      (procedure ,procedure? "The function to run with @code{\\applycontext}.
 It must take a single argument, being the context.")
      (property-operations ,list? "Do these operations for instantiating
@@ -179,8 +183,7 @@ If zero, signals a beat containing varying durations.")
 Options are @code{'text} and @code{'hairpin}.")
      (span-text ,markup? "The displayed text for dynamic text
 spanners (e.g., cresc.)")
-     (spanner-id ,string? "Identifier to distinguish concurrent spanners.")
-     (split-list ,list? "Splitting moments for part combiner.")
+     (spanner-id ,key? "Identifier to distinguish concurrent spanners.")
      (start-callback ,procedure? "Function to compute the negative length
 of starting grace notes.  This property can only be defined as initializer
 in @file{scm/@/define-music-types.scm}.")

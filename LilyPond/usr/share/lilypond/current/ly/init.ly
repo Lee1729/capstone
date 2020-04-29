@@ -1,10 +1,13 @@
-%% Toplevel initialisation file. 
+%% Toplevel initialisation file.
 
 %% switch on debugging.
 #(if (and #t (defined? 'set-debug-cell-accesses!))
   (set-debug-cell-accesses! 5000))
 
-\version "2.16.0"
+\version "2.19.22"
+
+#(if (guile-v2)
+  (use-modules (ice-9 curried-definitions)))
 
 #(session-initialize
   (lambda ()
@@ -14,12 +17,11 @@
    ;; function has not actually started.  A parser clone, in contrast,
    ;; can run and complete synchronously and shares the module with
    ;; the current parser.
-   (ly:parser-parse-string (ly:parser-clone parser)
+   (ly:parser-parse-string (ly:parser-clone)
     "\\include \"declarations-init.ly\"")))
 
-#(note-names-language parser default-language)
+#(note-names-language default-language)
 
-#(define location #f)
 #(define toplevel-scores (list))
 #(define toplevel-bookparts (list))
 #(define $defaultheader #f)
@@ -32,9 +34,10 @@
 
 #(use-modules (scm clip-region))
 #(use-modules (srfi srfi-1))
+#(use-modules (ice-9 pretty-print))
 
 $(if (ly:get-option 'include-settings)
-  (ly:parser-include-string parser
+  (ly:parser-include-string
     (format #f "\\include \"~a\"" (ly:get-option 'include-settings))))
 
 \maininput
@@ -65,14 +68,14 @@ $(if (ly:get-option 'include-settings)
                             (ly:book-add-score! book score))
                           (reverse! toplevel-scores)))
             (set! toplevel-scores (list))
-            (book-handler parser book)))
+            (book-handler book)))
          ((or (pair? toplevel-scores) output-empty-score-list)
-          (let ((book (apply ly:make-book $defaultpaper 
+          (let ((book (apply ly:make-book $defaultpaper
                              $defaultheader toplevel-scores)))
             (set! toplevel-scores (list))
-            (book-handler parser book)))))
+            (book-handler book)))))
 
-#(if (eq? expect-error (ly:parser-has-error? parser))
-  (ly:parser-clear-error parser)
+#(if (eq? expect-error (ly:parser-has-error?))
+  (ly:parser-clear-error)
   (if expect-error
-   (ly:parser-error parser (_ "expected error, but none found"))))
+   (ly:parser-error (_ "expected error, but none found"))))

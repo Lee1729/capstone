@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 2002--2012 Jan Nieuwenhuizen <janneke@gnu.org>
+;;;; Copyright (C) 2002--2015 Jan Nieuwenhuizen <janneke@gnu.org>
 ;;;;                Patrick McCarty <pnorcks@gmail.com>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
@@ -49,9 +49,11 @@
             (format #f " ~s=\"~a\"" attr value)))
         attributes-alist)))
 
-(define-public (eo entity . attributes-alist)
+(define-public (eo entity tNewline . attributes-alist)
   "o = open"
-  (format #f "<~S~a>\n" entity (attributes attributes-alist)))
+  (format #f "<~S~a>~a" entity
+                      (attributes attributes-alist)
+                      (if tNewline "\n" "")))
 
 (define-public (eoc entity . attributes-alist)
   "oc = open/close"
@@ -61,20 +63,25 @@
   "c = close"
   (format #f "</~S>\n" entity))
 
-(define (start-enclosing-id-node s)
-  (string-append "<g id=\"" s "\">\n"))
+(define (start-group-node attributes)
+  (define attributes-string
+    (string-concatenate
+     (map (lambda (item)
+            (ly:format " ~a=\"~a\"" (car item) (cdr item)))
+       attributes)))
+  (string-append "<g" attributes-string ">\n"))
 
-(define (end-enclosing-id-node)
+(define (end-group-node)
   "</g>\n")
 
 (define-public (comment s)
   (string-append "<!-- " s " -->\n"))
 
-(define-public (entity entity string . attributes-alist)
-  (if (equal? string "")
+(define-public (entity entity string tNewline . attributes-alist)
+  (if (string-null? string)
       (apply eoc entity attributes-alist)
       (string-append
-       (apply eo (cons entity attributes-alist)) string (ec entity))))
+       (apply eo entity tNewline attributes-alist) string (ec entity))))
 
 (define (offset->point o)
   (ly:format "~4f ~4f" (car o) (- (cdr o))))
@@ -83,7 +90,7 @@
   (define (helper lst)
     (if (null? lst)
         '()
-        (cons (format #f "~S ~S" (car lst) (- (cadr lst)))
+        (cons (ly:format "~4f ~4f" (car lst) (- (cadr lst)))
               (helper (cddr lst)))))
 
   (string-join (helper lst) " "))
@@ -147,7 +154,7 @@
           (set-attribute 'fill "currentColor"))
         (ly:warning (_ "cannot decypher Pango description: ~a") str))
 
-    (apply entity 'text expr (reverse! alist))))
+    (apply entity 'text expr #t (reverse! alist))))
 
 (define (dump-path path scale . rest)
   (define alist '())
@@ -173,7 +180,7 @@
 
   (set-attribute 'd path)
   (set-attribute 'fill "currentColor")
-  (apply entity 'path "" (reverse alist)))
+  (apply entity 'path "" #t (reverse alist)))
 
 
 ;; A global variable for keeping track of the *cumulative*
@@ -187,7 +194,7 @@
 
 ;; Matches the optional path data from <glyph>
 (define glyph-path-regexp
-  (make-regexp "d=\"([-MmZzLlHhVvCcSsQqTt0-9.\n ]*)\""))
+  (make-regexp "d=\"([-+MmZzLlHhVvCcSsQqTtAa0-9,.Ee\n ]*)\""))
 
 ;; Matches a complete <glyph> element with the glyph-name
 ;; attribute value of NAME.  For example:
@@ -305,7 +312,7 @@
       (set! alist (assoc-set! alist attr val)))
     (set-attribute 'font-family name-style)
     (set-attribute 'font-size scaled-size)
-    (apply entity 'text text (reverse! alist))))
+    (apply entity 'text text #t (reverse! alist))))
 
 (define font-smob-to-text
   (if (not (ly:get-option 'svg-woff))
@@ -321,11 +328,11 @@
 ;;;
 
 (define (char font i)
-  (fontify font (entity 'tspan (char->entity (integer->char i)))))
+  (fontify font (entity 'tspan (char->entity (integer->char i)) #f)))
 
 (define (circle radius thick is-filled)
   (entity
-   'circle ""
+   'circle "" #f
    '(stroke-linejoin . "round")
    '(stroke-linecap . "round")
    `(fill . ,(if is-filled "currentColor" "none"))
@@ -338,7 +345,7 @@
              `(stroke-dasharray . ,(format #f "~a,~a" on off))))
 
 (define (draw-line thick x1 y1 x2 y2 . alist)
-  (apply entity 'line ""
+  (apply entity 'line "" #t
          (append
           `((stroke-linejoin . "round")
             (stroke-linecap . "round")
@@ -352,7 +359,7 @@
 
 (define (ellipse x-radius y-radius thick is-filled)
   (entity
-   'ellipse ""
+   'ellipse "" #t
    '(stroke-linejoin . "round")
    '(stroke-linecap . "round")
    `(fill . ,(if is-filled "currentColor" "none"))
@@ -380,7 +387,7 @@
                  (* start-radius (sin new-start-angle)))))
     (if (and (< (abs x-end) epsilon) (< (abs y-end) epsilon))
         (entity
-         'ellipse ""
+         'ellipse "" #t
          `(fill . ,(if fill "currentColor" "none"))
          `(stroke . "currentColor")
          `(stroke-width . ,thick)
@@ -391,7 +398,7 @@
          `(rx . ,x-radius)
          `(ry . ,y-radius))
         (entity
-         'path ""
+         'path "" #t
          `(fill . ,(if fill "currentColor" "none"))
          `(stroke . "currentColor")
          `(stroke-width . ,thick)
@@ -424,7 +431,7 @@
       (set! path (music-string-to-path font size (car glyphs)))
       (begin
         (set! path
-              (string-append (eo 'g)
+              (string-append (eo 'g #t)
                              (string-join
                               (map (lambda (x)
                                      (music-string-to-path font size x))
@@ -490,13 +497,13 @@
                      (file (if (is-absolute? raw-file)
                                raw-file
                                (string-append (ly-getcwd) "/" raw-file))))
-                
+
                 (ly:format "<a style=\"color:inherit;\" xlink:href=\"textedit://~a:~a:~a:~a\">\n"
                            ;; Backslashes are not valid
                            ;; file URI path separators.
                            (ly:string-percent-encode
                             (ly:string-substitute "\\" "/" file))
-                           
+
                            (cadr location)
                            (caddr location)
                            (1+ (cadddr location))))))))
@@ -546,7 +553,7 @@
                                        (symbol->string join))
                            'round)
                          join)))
-    (entity 'path ""
+    (entity 'path "" #t
             `(stroke-width . ,thick)
             `(stroke-linejoin . ,(symbol->string join-style))
             `(stroke-linecap . ,(symbol->string cap-style))
@@ -578,7 +585,7 @@
 
 (define (polygon coords blot-diameter is-filled)
   (entity
-   'polygon ""
+   'polygon "" #t
    '(stroke-linejoin . "round")
    '(stroke-linecap . "round")
    `(stroke-width . ,blot-diameter)
@@ -598,7 +605,7 @@
 
 (define (round-filled-box breapth width depth height blot-diameter)
   (entity
-   'rect ""
+   'rect "" #t
    ;; The stroke will stick out.  To use stroke,
    ;; the stroke-width must be subtracted from all other dimensions.
    ;;'(stroke-linejoin . "round")
@@ -615,7 +622,7 @@
    '(fill . "currentColor")))
 
 (define (setcolor r g b)
-  (format #f "<g color=\"rgb(~a%, ~a%, ~a%)\">\n"
+  (ly:format "<g color=\"rgb(~4f%, ~4f%, ~4f%)\">\n"
           (* 100 r) (* 100 g) (* 100 b)))
 
 ;; rotate around given point
@@ -628,11 +635,11 @@
              x y))
 
 (define (text font string)
-  (fontify font (entity 'tspan (string->entities string))))
+  (fontify font (entity 'tspan (string->entities string) #f)))
 
 (define (url-link url x y)
   (string-append
-   (eo 'a `(xlink:href . ,url))
+   (eo 'a #t `(xlink:href . ,url))
    (eoc 'rect
         `(x . ,(car x))
         `(y . ,(car y))
@@ -648,4 +655,4 @@
                          "<" "&lt;"
                          (string-regexp-substitute "&" "&amp;" string))))
     (fontify pango-font-description
-             (entity 'tspan escaped-string))))
+             (entity 'tspan escaped-string #f))))

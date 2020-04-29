@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 2008--2012 Reinhold Kainhofer <reinhold@kainhofer.com>
+;;;; Copyright (C) 2008--2015 Reinhold Kainhofer <reinhold@kainhofer.com>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
 ;;;; it under the terms of the GNU General Public License as published by
@@ -47,13 +47,12 @@ multiple dividers) anywhere you want, but you'll have to live with the
 warnings.
 
 The appearance of the diagram can be tweaked inter alia using the size property
-of the TextScript grob (@code{\\override Voice.TextScript #'size = #0.3}) for
-the overall, the thickness property (@code{\\override Voice.TextScript
-#'thickness = #3}) for the line thickness of
+of the TextScript grob (@code{\\override Voice.TextScript.size = #0.3}) for
+the overall, the thickness property (@code{\\override
+Voice.TextScript.thickness = #3}) for the line thickness of
 the horizontal line and the divider.  The remaining configuration (box
 sizes, offsets and spaces) is done by the harp-pedal-details list of
-properties (@code{\\override Voice.TextScript #'harp-pedal-details
-#'box-width = #1}).
+properties (@code{\\override Voice.TextScript.harp-pedal-details.box-width = #1}).
 It contains the following settings: @code{box-offset} (vertical shift
 of the box center for up/down pedals), @code{box-width},
 @code{box-height}, @code{space-before-divider} (the spacing between
@@ -68,7 +67,7 @@ spacing after the divider).
          (details (begin (harp-pedal-check pedal-list) harp-pedal-details))
          (dy (* size (assoc-get 'box-offset details 0.8))) ; offset of the box center from the line
          (line-width (* (ly:output-def-lookup layout 'line-thickness)
-                        (chain-assoc-get 'thickness props 0.5)))
+                        thickness))
          (box-width (* size (assoc-get 'box-width details 0.4)))
          (box-hheight (* size (/ (assoc-get 'box-height details 1.0) 2))) ; half the box-height, saves some divisions by 2
          (spacebeforedivider (* size (assoc-get 'space-before-divider details 0.8))) ; full space between boxes before the first divider
@@ -132,6 +131,7 @@ spacing after the divider).
            stencils)))
 
 ;; Parse the harp pedal definition string into list of directions (-1/0/1), #\o and #\|
+;; Whitespace is removed from definition string before the procedure applies.
 (define (harp-pedals-parse-string definition-string)
   "Parse a harp pedals diagram string and return a list containing 1, 0, -1, #\\o or #\\|"
   (map (lambda (c)
@@ -141,7 +141,7 @@ spacing after the divider).
            ((#\-) 0)
            ((#\| #\o) c)
            (else c)))
-       (string->list definition-string)))
+       (string->list (remove-whitespace definition-string))))
 
 
 ;; Analyze the pedal-list: Return (pedalcount . (divider positions))

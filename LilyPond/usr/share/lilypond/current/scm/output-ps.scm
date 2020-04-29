@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 1998--2012 Jan Nieuwenhuizen <janneke@gnu.org>
+;;;; Copyright (C) 1998--2015 Jan Nieuwenhuizen <janneke@gnu.org>
 ;;;;                 Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
@@ -35,25 +35,6 @@
              (scm framework-ps)
              (lily))
 
-;;; helper functions, not part of output interface
-;;;
-
-
-;; ice-9 format uses a lot of memory
-;; using simple-format almost halves lilypond cell usage
-
-(define (str4 num)
-  (if (or (nan? num) (inf? num))
-      (begin
-        (ly:warning (_ "Found infinity or nan in output.  Substituting 0.0"))
-        (if (ly:get-option 'strict-infinity-checking)
-            (exit 1))
-        "0.0")
-      (ly:number->string num)))
-
-(define (number-pair->string4 numpair)
-  (ly:format "~4l" numpair))
-
 ;;;
 ;;; Lily output interface, PostScript implementation --- cleanup and docme
 ;;;
@@ -71,10 +52,10 @@
        "false")
    radius thick))
 
-(define (start-enclosing-id-node s)
+(define (start-group-node attributes)
   "")
 
-(define (end-enclosing-id-node)
+(define (end-group-node)
   "")
 
 (define (dashed-line thick on off dx dy phase)
@@ -117,28 +98,30 @@
                       size
                       cid?
                       w-x-y-named-glyphs)
-
   (define (glyph-spec w h x y g) ; h not used
     (let ((prefix (if (string? g) "/" "")))
-      (ly:format "~4f ~4f ~4f ~a~a"
-                 w x y
-                 prefix g)))
-
-  (ly:format
-   (if cid?
-       "/~a /CIDFont findresource ~a output-scale div scalefont setfont
-~a
-~a print_glyphs"
-
-       "/~a ~a output-scale div selectfont
-~a
-~a print_glyphs")
-   postscript-font-name
-   size
-   (string-join (map (lambda (x) (apply glyph-spec x))
-                     (reverse w-x-y-named-glyphs)) "\n")
-   (length w-x-y-named-glyphs)))
-
+      (ly:format "~4f ~4f ~4f ~a~a" w x y prefix g)))
+  (define (emglyph-spec w h x y g) ; h not used
+    (if (and (= x 0) (= y 0))
+        (ly:format "currentpoint ~a moveto ~4f 0 rmoveto" g w)
+        (ly:format "currentpoint ~4f ~4f rmoveto ~a moveto ~4f 0 rmoveto" x y g w)))
+  (if cid?
+      (ly:format
+       "/~a /CIDFont findresource ~a output-scale div scalefont setfont\n~a\n~a print_glyphs"
+       postscript-font-name size
+       (string-join (map (lambda (x) (apply glyph-spec x))
+                         (reverse w-x-y-named-glyphs)) "\n")
+       (length w-x-y-named-glyphs))
+      (if (and (ly:get-option 'music-font-encodings) (string-startswith postscript-font-name "Emmentaler"))
+          (ly:format "/~a-O ~a output-scale div selectfont\n~a"
+                     postscript-font-name size
+                     (string-join (map (lambda (x) (apply emglyph-spec x))
+                                       w-x-y-named-glyphs) "\n"))
+          (ly:format "/~a ~a output-scale div selectfont\n~a\n~a print_glyphs"
+                     postscript-font-name size
+                     (string-join (map (lambda (x) (apply glyph-spec x))
+                                       (reverse w-x-y-named-glyphs)) "\n")
+                     (length w-x-y-named-glyphs)))))
 
 (define (grob-cause offset grob)
   (if (ly:get-option 'point-and-click)
@@ -183,9 +166,19 @@
       ""))
 
 (define (named-glyph font glyph)
-  (ly:format "~a /~a glyphshow " ;;Why is there a space at the end?
-             (ps-font-command font)
-             glyph))
+  (if (and (ly:get-option 'music-font-encodings) (string-startswith (ly:font-file-name font) "emmentaler"))
+      (if (string-endswith (ly:font-file-name font)"-brace")
+          (if (or (string-startswith glyph "brace1") (string-startswith glyph "brace2"))
+              (ly:format "~a ~a" (string-append (ps-font-command font) "-N" ) glyph)
+              (if (or (string-startswith glyph "brace3") (string-startswith glyph "brace4"))
+                  (ly:format "~a ~a" (string-append (ps-font-command font) "-S" ) glyph)
+                  (ly:format "~a ~a" (string-append (ps-font-command font) "-O" ) glyph)))
+          (if (string-startswith glyph "noteheads")
+              (ly:format "~a ~a" (string-append (ps-font-command font) "-N" ) glyph)
+              (if (or (string-startswith glyph "scripts") (string-startswith glyph "clefs"))
+                  (ly:format "~a ~a" (string-append (ps-font-command font) "-S" ) glyph)
+                  (ly:format "~a ~a" (string-append (ps-font-command font) "-O" ) glyph))))
+      (ly:format "~a /~a glyphshow" (ps-font-command font) glyph)))
 
 (define (no-origin)
   "")
@@ -283,15 +276,20 @@
                                     (ly:warning (_ "unknown line-join-style: ~S")
                                                 (symbol->string join))
                                     1)))))
-    (ly:format
-     "gsave currentpoint translate
+     (ly:format
+      "gsave currentpoint translate
 ~a setlinecap ~a setlinejoin ~a setlinewidth
-~l gsave stroke grestore ~a grestore"
-     cap-numeric
-     join-numeric
-     thickness
-     (convert-path-exps exps)
-     (if fill? "fill" ""))))
+~l ~a grestore"
+      cap-numeric
+      join-numeric
+      thickness
+      (convert-path-exps exps)
+      ;; print outline contour only if there is no fill or if
+      ;; contour is explicitly requested with a thickness > 0
+      (cond ((not fill?) "stroke")
+            ((positive? thickness) "gsave stroke grestore fill")
+            (else "fill")))))
+
 
 (define (setscale x y)
   (ly:format "gsave ~4l scale\n"

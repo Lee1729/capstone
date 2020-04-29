@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 2009--2012 Marc Hohl <marc@hohlart.de>
+;;;; Copyright (C) 2009--2015 Marc Hohl <marc@hohlart.de>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
 ;;;; it under the terms of the GNU General Public License as published by
@@ -27,7 +27,7 @@
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; helper functions for staff and layout properties
 
-(define (calc-blot thickness extent grob)
+(define (bar-line::calc-blot thickness extent grob)
   "Calculate the blot diameter by taking @code{'rounded}
 and the dimensions of the extent into account."
   (let* ((rounded (ly:grob-property grob 'rounded #f))
@@ -39,8 +39,17 @@ and the dimensions of the extent into account."
                            ((< height blot-diameter) height)
                            (else blot-diameter)))
                    0)))
-
     blot))
+
+(define-public (bar-line::draw-filled-box x-ext y-ext thickness extent grob)
+  "Return a straight bar-line created by @code{ly:round-filled-box} looking at
+@var{x-ext}, @var{y-ext}, @var{thickness}.  The blot is calculated by
+@code{bar-line::calc-blot}, which needs @var{extent} and @var{grob}.
+@var{y-ext} is not necessarily of same value as @var{extent}."
+  (ly:round-filled-box
+    x-ext
+    y-ext
+    (bar-line::calc-blot thickness extent grob)))
 
 (define (get-span-glyph bar-glyph)
   "Get the corresponding span glyph from the @code{span-glyph-bar-alist}.
@@ -250,35 +259,38 @@ is not used within the routine."
   (let* ((line-thickness (layout-line-thickness grob))
          (thickness (* (ly:grob-property grob 'hair-thickness 1)
                        line-thickness))
-         (blot (calc-blot thickness extent grob))
          (extent (bar-line::widen-bar-extent-on-span grob extent)))
-
-    (ly:round-filled-box (cons 0 thickness)
-                         extent
-                         blot)))
+    (bar-line::draw-filled-box
+      (cons 0 thickness)
+      extent
+      thickness
+      extent
+      grob)))
 
 (define (make-thick-bar-line grob extent)
   "Draw a thick bar line."
   (let* ((line-thickness (layout-line-thickness grob))
          (thickness (* (ly:grob-property grob 'thick-thickness 1)
                        line-thickness))
-         (blot (calc-blot thickness extent grob))
          (extent (bar-line::widen-bar-extent-on-span grob extent)))
-
-    (ly:round-filled-box (cons 0 thickness)
-                         extent
-                         blot)))
+    (bar-line::draw-filled-box
+      (cons 0 thickness)
+      extent
+      thickness
+      extent
+      grob)))
 
 (define (make-tick-bar-line grob extent)
   "Draw a tick bar line."
   (let* ((half-staff (* 1/2 (ly:staff-symbol-staff-space grob)))
          (staff-line-thickness (ly:staff-symbol-line-thickness grob))
-         (height (interval-end extent))
-         (blot (calc-blot staff-line-thickness extent grob)))
-
-    (ly:round-filled-box (cons 0 staff-line-thickness)
-                         (cons (- height half-staff) (+ height half-staff))
-                         blot)))
+         (height (interval-end extent)))
+    (bar-line::draw-filled-box
+      (cons 0 staff-line-thickness)
+      (cons (- height half-staff) (+ height half-staff))
+      staff-line-thickness
+      extent
+      grob)))
 
 (define (make-colon-bar-line grob extent)
   "Draw repeat dots."
@@ -440,14 +452,14 @@ is not used within the routine."
 the segno sign is drawn over the double bar line; otherwise, it
 draws the span bar variant, i.e. without the segno sign."
   (let* ((line-thickness (layout-line-thickness grob))
-         (thinkern (* (ly:grob-property grob 'thin-kern 1) line-thickness))
+         (segno-kern (* (ly:grob-property grob 'segno-kern 1) line-thickness))
          (thin-stil (make-simple-bar-line grob extent))
          (double-line-stil (ly:stencil-combine-at-edge
                             thin-stil
                             X
                             LEFT
                             thin-stil
-                            thinkern))
+                            segno-kern))
          (segno (ly:font-get-glyph (ly:grob-default-font grob)
                                    "scripts.varsegno"))
          (stencil (ly:stencil-add
@@ -459,7 +471,7 @@ draws the span bar variant, i.e. without the segno sign."
                         (cons 0 0)))
                    (ly:stencil-translate-axis
                     double-line-stil
-                    (* 1/2 thinkern)
+                    (* 1/2 segno-kern)
                     X))))
 
     stencil))
@@ -467,11 +479,11 @@ draws the span bar variant, i.e. without the segno sign."
 (define (make-kievan-bar-line grob extent)
   "Draw a kievan bar line."
   (let* ((font (ly:grob-default-font grob))
-         (stencil (stencil-whiteout
+         (stencil (stencil-whiteout-box
                    (ly:font-get-glyph font "scripts.barline.kievan"))))
 
     ;; the kievan bar line has no staff lines underneath,
-    ;; so we whiteout them and move the grob to a higher layer
+    ;; so we whiteout-box them and move the grob to a higher layer
     (ly:grob-set-property! grob 'layer 1)
     stencil))
 
@@ -500,7 +512,7 @@ opening bracket will be drawn, for @code{RIGHT} we get the closing bracket."
                                               (interval-start extent)
                                               Y))))
 
-    (if (eq? dir LEFT)
+    (if (eqv? dir LEFT)
         stencil
         (ly:stencil-scale stencil -1 1))))
 
@@ -1049,7 +1061,7 @@ of the volta brackets relative to the bar lines."
 (define-bar-line ":|." ":|." #f " |.")
 (define-bar-line ".|:" "|" ".|:" ".|")
 (define-bar-line "[|:" "|" "[|:" " |")
-(define-bar-line ":|]" ":|]" #f " |")
+(define-bar-line ":|]" ":|]" #f " | ")
 (define-bar-line ":|][|:" ":|]" "[|:" " |  |")
 (define-bar-line ".|:-||" "||" ".|:" ".|")
 

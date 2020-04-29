@@ -1,6 +1,6 @@
 %%%% This file is part of LilyPond, the GNU music typesetter.
 %%%%
-%%%% Copyright (C) 1996--2012 Han-Wen Nienhuys <hanwen@xs4all.nl>
+%%%% Copyright (C) 1996--2015 Han-Wen Nienhuys <hanwen@xs4all.nl>
 %%%%                          Jan Nieuwenhuizen <janneke@gnu.org>
 %%%%
 %%%% LilyPond is free software: you can redistribute it and/or modify
@@ -16,7 +16,7 @@
 %%%% You should have received a copy of the GNU General Public License
 %%%% along with LilyPond.  If not, see <http://www.gnu.org/licenses/>.
 
-\version "2.17.14"
+\version "2.19.16"
 
 %%
 %% setup for Request->Element conversion.
@@ -24,14 +24,14 @@
 \context {
   \type "Performer_group"
   \name Staff
-  \accepts Voice
   \accepts CueVoice
   \accepts NullVoice
+  \accepts Voice
   \defaultchild Voice
 
   \consists "Staff_performer"
   \consists "Key_performer"
-  \consists "Midi_control_function_performer"
+  \consists "Midi_control_change_performer"
 }
 
 \context {
@@ -42,45 +42,56 @@
 }
 
 \context {
-  \type "Performer_group"
+  \Staff
   \name KievanStaff
+  \alias Staff
   \denies Voice
   \accepts KievanVoice
   \defaultchild KievanVoice
-  \alias Staff
-  \consists "Staff_performer"
-  \consists "Key_performer"
-  \consists "Midi_control_function_performer"
 }
 
 \context {
-  \type "Performer_group"
+  \Staff
   \name VaticanaStaff
   \alias Staff
   \denies Voice
   \accepts VaticanaVoice
   \defaultchild VaticanaVoice
-  \consists "Staff_performer"
-  \consists "Key_performer"
-  \consists "Midi_control_function_performer"
 }
 
 \context {
-  \type "Performer_group"
+  \Staff
   \name MensuralStaff
+  \alias Staff
   \denies Voice
   \accepts MensuralVoice
   \defaultchild MensuralVoice
+}
+
+\context {
+  \Staff
+  \name PetrucciStaff
   \alias Staff
-  \consists "Staff_performer"
-  \consists "Key_performer"
-  \consists "Midi_control_function_performer"
+  \denies Voice
+  \accepts PetrucciVoice
+  \defaultchild PetrucciVoice
+}
+
+\context {
+  \Staff
+  \name GregorianTranscriptionStaff
+  \alias Staff
+  \denies Voice
+  \accepts GregorianTranscriptionVoice
+  \defaultchild GregorianTranscriptionVoice
 }
 
 \context {
   \Staff
   \name DrumStaff
-  midiInstrument = #"drums"
+  \alias Staff
+  midiInstrument = "drums"
+  \denies Voice
   \accepts DrumVoice
   \defaultchild DrumVoice
 }
@@ -103,46 +114,46 @@
 }
 
 \context {
-  \type "Performer_group"
+  \Voice
   \name VaticanaVoice
   \alias Voice
-  \consists "Dynamic_performer"
-  \consists "Tie_performer"
-  \consists "Note_performer"
-  \consists "Beam_performer"
-  autoBeaming = ##f  % needed for consistent melismata with engravers
-  \consists "Slur_performer"
-}
-
-\context {
-  \type "Performer_group"
-  \name KievanVoice
-  \alias Voice
-  \consists "Dynamic_performer"
-  \consists "Tie_performer"
-  \consists "Note_performer"
-  \consists "Beam_performer"
-  autoBeaming = ##f  % needed for consistent melismata with engravers
-  \consists "Slur_performer"
-}
-
-\context {
-  \type "Performer_group"
-  \name MensuralVoice
-  \alias Voice
-  \consists "Dynamic_performer"
-  \consists "Tie_performer"
-  \consists "Note_performer"
-  \consists "Beam_performer"
-  autoBeaming = ##f  % needed for consistent melismata with engravers
-  \consists "Slur_performer"
+  autoBeaming = ##f  % needed for consistent melismata with engravers"
 }
 
 \context {
   \Voice
+  \name KievanVoice
+  \alias Voice
+  autoBeaming = ##f  % needed for consistent melismata with engravers"
+}
+
+\context {
+  \Voice
+  \name MensuralVoice
+  \alias Voice
+  autoBeaming = ##f  % needed for consistent melismata with engravers
+}
+
+\context {
+  \Voice
+  \name PetrucciVoice
+  \alias Voice
+  autoBeaming = ##f  % needed for consistent melismata with engravers
+}
+
+\context {
+  \Voice
+  \name GregorianTranscriptionVoice
+  \alias Voice
+  autoBeaming = ##f  % needed for consistent melismata with engravers
+}
+
+\context {
+  \Voice
+  \name DrumVoice
+  \alias Voice
   \remove "Note_performer"
   \consists "Drum_note_performer"
-  \name DrumVoice
 }
 
 \context {
@@ -153,33 +164,40 @@
 \context {
   \type "Performer_group"
   \name FretBoards
+  \alias Staff
 }
 
 \context {
   \type "Performer_group"
   \name GrandStaff
+  \accepts ChordNames
+  \accepts DrumStaff
+  \accepts Dynamics
+  \accepts FiguredBass
+  \accepts Lyrics
   \accepts RhythmicStaff
   \accepts Staff
-  \accepts Dynamics
+  \accepts TabStaff
   \defaultchild Staff
 }
 
 \context {
-  \type "Performer_group"
-  \name "PianoStaff"
-  \accepts Staff
-  \accepts DrumStaff
-  \defaultchild Staff
+  \GrandStaff
+  \name PianoStaff
+  \alias GrandStaff
 }
 
 \context {
   \Voice
   \name TabVoice
+  \alias Voice
 }
 
 \context {
   \type "Performer_group"
-  \name "Devnull"
+  \name Devnull
+  \alias Voice
+  \alias Staff
 }
 
 \context {
@@ -188,9 +206,6 @@
   \alias Staff
   \alias Voice
   %% needed for melismata
-  %% TODO: at least the tie performer likely does not work without the
-  %% Note_performer, but I don't know how to shut note output off in
-  %% MIDI.
   \consists "Tie_performer"
   \consists "Beam_performer"
   \consists "Slur_performer"
@@ -199,8 +214,9 @@
 \context {
   \Staff
   \name TabStaff
-  midiInstrument = #"acoustic guitar (nylon)"
+  midiInstrument = "acoustic guitar (nylon)"
   \alias Staff
+  \denies Voice
   \accepts TabVoice
   \defaultchild TabVoice
   autoBeaming = ##f  % needed for consistent melismata with engravers
@@ -212,28 +228,33 @@
   \name Score
 
   melismaBusyProperties = #default-melisma-properties
-  instrumentName = #"bright acoustic"
+  instrumentName = "bright acoustic"
   midiChannelMapping = #'staff
 
   %% quarter = 60
   tempoWholesPerMinute = #(ly:make-moment 15/1)
 
-  \accepts Staff
-  \accepts DrumStaff
-  \accepts GrandStaff
-  \accepts PianoStaff
-  \accepts TabStaff
-  \accepts StaffGroup
-  \accepts Devnull
   \accepts ChoirStaff
-  \accepts RhythmicStaff
   \accepts ChordNames
+  \accepts Devnull
+  \accepts DrumStaff
+  \accepts Dynamics
   \accepts FiguredBass
-  \accepts FretBoards
-  \accepts Lyrics
-  \accepts VaticanaStaff
+  \accepts GrandStaff
+  \accepts GregorianTranscriptionStaff
   \accepts KievanStaff
+  \accepts Lyrics
   \accepts MensuralStaff
+  \accepts NoteNames
+  \accepts OneStaff
+  \accepts PetrucciStaff
+  \accepts PianoStaff
+  \accepts RhythmicStaff
+  \accepts FretBoards
+  \accepts Staff
+  \accepts StaffGroup
+  \accepts TabStaff
+  \accepts VaticanaStaff
 
   \consists "Time_signature_performer"
   \consists "Control_track_performer"
@@ -263,6 +284,14 @@
   dynamicAbsoluteVolumeFunction = #default-dynamic-absolute-volume
   instrumentEqualizer = #default-instrument-equalizer
   drumPitchTable = #(alist->hash-table midiDrumPitches)
+
+  %% \quoteDuring is supposed to quote everything but we don't admit
+  %% cue events by default in order not to get multiple midi
+  %% renditions in an orchestral score.
+
+  quotedEventTypes = #'(StreamEvent)
+  quotedCueEventTypes = #'()
+
   timing = ##t
 }
 
@@ -277,47 +306,87 @@
 \context{
   \type "Performer_group"
   \name ChoirStaff
-  \accepts Staff
+  \accepts ChoirStaff
+  \accepts ChordNames
+  \accepts FiguredBass
   \accepts DrumStaff
+  \accepts Dynamics
+  \accepts GrandStaff
+  \accepts Lyrics
+  \accepts OneStaff
+  \accepts PianoStaff
+  \accepts RhythmicStaff
+  \accepts Staff
+  \accepts StaffGroup
   \defaultchild Staff
 }
 
 \context {
   \type "Performer_group"
   \consists "Staff_performer"
-  \accepts ChordNameVoice
-  \defaultchild ChordNameVoice
-  \name ChordNames
+  \name NoteNames
+  \alias Staff			% Catch Staff-level overrides like
+				% \key, \transposition
 }
 
 \context {
-  \Voice
-  \name ChordNameVoice
+  \Voice			% We want all the actual performers
+  \name ChordNames
+  \alias Staff			% Catch Staff-level overrides like
+				% \key, \transposition
+  \consists "Staff_performer"
 }
 
 \context {
   \type "Performer_group"
   \name StaffGroup
-  \accepts Staff
-  \accepts DrumStaff
-  \accepts TabStaff
-  \accepts RhythmicStaff
-  \accepts GrandStaff
-  \accepts PianoStaff
-  \accepts Lyrics
+  \accepts ChoirStaff
   \accepts ChordNames
+  \accepts DrumStaff
   \accepts FiguredBass
   \accepts FretBoards
+  \accepts GrandStaff
+  \accepts Lyrics
+  \accepts OneStaff
+  \accepts PianoStaff
+  \accepts RhythmicStaff
+  \accepts Staff
+  \accepts StaffGroup
+  \accepts TabStaff
   \defaultchild Staff
+}
+
+\context {
+  \type "Performer_group"
+  \name "OneStaff"
+  \accepts "ChordNames"
+  \accepts "DrumStaff"
+  \accepts "Dynamics"
+  \accepts "FiguredBass"
+  \accepts "FretBoards"
+  \accepts "GregorianTranscriptionStaff"
+  \accepts "KievanStaff"
+  \accepts "Lyrics"
+  \accepts "MensuralStaff"
+  \accepts "NoteNames"
+  \accepts "PetrucciStaff"
+  \accepts "RhythmicStaff"
+  \accepts "Staff"
+  \accepts "TabStaff"
+  \accepts "VaticanaStaff"
+  \defaultchild "Staff"
 }
 
 \context {
   \Staff
   \name RhythmicStaff
+  \alias Staff
+  \defaultchild Voice
 }
 
 \context {
   \type "Performer_group"
   \name Dynamics
+  \alias Voice
   \consists "Piano_pedal_performer"
 }

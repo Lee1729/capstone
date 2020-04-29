@@ -2,7 +2,7 @@
 ;;;
 ;;;
 ;;;
-;;; Copyright (C) 2005--2012 Nicolas Sceaux  <nicolas.sceaux@free.fr>
+;;; Copyright (C) 2005--2015 Nicolas Sceaux  <nicolas.sceaux@free.fr>
 ;;;
 
 ;;; - This file defines the procedures used to define display methods for each
@@ -11,10 +11,10 @@
 ;;; Display methods are stored in the `display-methods' property of each music
 ;;; type.
 ;;;
-;;; - `music->lily-string' return a string describing a music expression using
-;;; LilyPond notation. The special variables *indent*, *previous-duration*,
-;;; and *force-duration* influence the indentation level and the display of
-;;; music durations.
+;;; - `music->lily-string' return a string describing a music
+;;; expression using LilyPond notation. The special variables *indent*
+;;; and *omit-duration* influence the indentation level and the
+;;; display of music durations.
 ;;;
 ;;; - `with-music-match' can be used to destructure a music expression, extracting
 ;;; some interesting music properties.
@@ -41,7 +41,7 @@
 `display-methods' property of the music type entry found in the
 `music-name-to-property-table' hash table.  Print methods previously
 defined for that music type are lost.
-Syntax: (define-display-method MusicType (expression parser)
+Syntax: (define-display-method MusicType (expression)
           ...body...))"
   `(let ((type-props (hashq-ref music-name-to-property-table
                                 ',music-type '()))
@@ -99,7 +99,7 @@ display method will be called."
                            (scheme-expr->lily-string val))))
                (ly:music-property expr 'tweaks))))
 
-(define-public (music->lily-string expr parser)
+(define-public (music->lily-string expr)
   "Print @var{expr}, a music expression, in LilyPond syntax."
   (if (ly:music? expr)
       (let* ((music-type (ly:music-property expr 'name))
@@ -107,7 +107,7 @@ display method will be called."
                                           music-type '())
                                'display-methods))
              (result-string (and procs (any (lambda (proc)
-                                              (proc expr parser))
+                                              (proc expr))
                                             procs))))
         (if result-string
             (format #f "~a~a~a"
@@ -190,20 +190,18 @@ match thoses described in `pattern'."
       ;; build the test conditions for each element found in a (property . (e1 e2 ...)) pair.
       ;; this requires accessing to an element of a list, hence the index.
       ;; (typically, property will be 'elements)
-      ,@(map (lambda (prop-elements)
-               (let ((ges (gensym))
-                     (index -1))
-                 `(and ,@(map (lambda (e)
-                                (set! index (1+ index))
-                                (if (music? e)
-                                    (gen-condition `(and (> (length (ly:music-property ,expr ',(car prop-elements)))
-                                                            ,index)
-                                                         (list-ref (ly:music-property ,expr ',(car prop-elements))
-                                                                   ,index))
-                                                   e)
-                                    #t))
-                              (cdr prop-elements)))))
-             elements-list))))
+      ,@(map
+         (lambda (prop-elements)
+           (let ((ges (gensym))
+                 (len (length (cdr prop-elements))))
+             `(let ((,ges (ly:music-property ,expr ',(car prop-elements))))
+                (and (eqv? (length+ ,ges) ,len)
+                     ,@(filter-map
+                        (lambda (e index)
+                          (and (music? e)
+                               (gen-condition `(list-ref ,ges ,index) e)))
+                        (cdr prop-elements) (iota len))))))
+         elements-list))))
 
 (define (gen-bindings expr pattern)
   "Helper function for `with-music-match'.
@@ -248,7 +246,7 @@ Generate binding forms by looking for ?var symbol in pattern."
                                  (cdr prop-elements))))
                  elements-list))))
 
-(define-macro (with-music-match music-expr+pattern . body)
+(defmacro-public with-music-match (music-expr+pattern . body)
   "If `music-expr' matches `pattern', call `body'.  `pattern' should look like:
   '(music <MusicType>
      property value
@@ -269,10 +267,9 @@ inside body."
         (pattern (second music-expr+pattern))
         (expr-sym (gensym)))
     `(let ((,expr-sym ,music-expr))
-       (if ,(gen-condition expr-sym pattern)
-           (let ,(gen-bindings expr-sym pattern)
-             ,@body)
-           #f))))
+       (and ,(gen-condition expr-sym pattern)
+            (let ,(gen-bindings expr-sym pattern)
+              ,@body)))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;
@@ -282,11 +279,8 @@ inside body."
 ;;; indentation
 (define-public *indent* (make-parameter 0))
 
-;;; set to #t to force duration printing
-(define-public *force-duration* (make-parameter #f))
-
-;;; last duration found
-(define-public *previous-duration* (make-parameter (ly:make-duration 2)))
+;;; set to #t to omit duration printing
+(define-public *omit-duration* (make-parameter #f))
 
 ;;; Set to #t to force a line break with some kinds of expressions (eg sequential music)
 (define *force-line-break* (make-parameter #t))

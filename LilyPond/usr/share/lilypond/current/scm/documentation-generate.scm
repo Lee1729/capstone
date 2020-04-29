@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 2000--2012 Han-Wen Nienhuys <hanwen@xs4all.nl>
+;;;; Copyright (C) 2000--2015 Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;; Jan Nieuwenhuizen <janneke@gnu.org>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
@@ -125,8 +125,12 @@
 @titlefont{Internals Reference}
 @author The LilyPond development team
 
-@c `Internals Reference' was born 2000-10-21 with git commit 01e371f...
-Copyright @copyright{} 2000--2012 by the authors
+@c `Internals Reference' was born 2000-10-21 with this commit:
+@c patch::: 1.3.96.jcn9
+@c author: Jan Nieuwenhuizen
+@c commit: 8ecd09ad7514d57630fb611d38c161f3c3c708db
+@c   file: scm/generate-documentation.scm
+Copyright @copyright{} 2000--2015 by the authors
 
 @vskip 20pt
 

@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 2005--2012 Erik Sandberg <mandolaerik@gmail.com>
+;;;; Copyright (C) 2005--2015 Erik Sandberg <mandolaerik@gmail.com>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
 ;;;; it under the terms of the GNU General Public License as published by
@@ -25,19 +25,20 @@
                  (RemoveContext
                   ChangeParent Override Revert UnsetProperty SetProperty
                   music-event OldMusicEvent CreateContext Prepare
-                  OneTimeStep Finish))
+                  OneTimeStep Finish GraceChange))
     (music-event . (annotate-output-event
                     footnote-event arpeggio-event breathing-event
                     extender-event span-event rhythmic-event dynamic-event
                     break-event label-event percent-event key-change-event
                     string-number-event stroke-finger-event tie-event
-                    part-combine-event part-combine-force-event
+                    part-combine-event
                     beam-forbid-event script-event tempo-change-event
                     tremolo-event bend-after-event fingering-event
                     glissando-event harmonic-event hyphen-event
                     laissez-vibrer-event mark-event multi-measure-text-event
                     note-grouping-event pes-or-flexa-event repeat-tie-event
                     spacing-section-event layout-instruction-event
+                    time-signature-event
                     completize-extender-event break-span-event alternative-event))
 
     (layout-instruction-event . (apply-output-event))
@@ -106,7 +107,7 @@ previously defined event class."
      ((ly:make-event-class class)
       (ly:error (_ "Cannot redefine event class `~S'") class))
      ((not parentclass)
-      (ly:error (_ "Undefined parent event class `~S'" parentclass)))
+      (ly:error (_ "Undefined parent event class `~S'") parentclass))
      (else
       (hashq-set! ancestor-lookup
                   class
@@ -158,7 +159,7 @@ previously defined event class."
 ;;(pretty-print (cons (car music-event-tree) (sort-tree (cdr music-event-tree))))
 
 (defmacro-public make-stream-event (expr)
-  (Stream_event::undump (primitive-eval (list 'quasiquote expr))))
+  (ly:stream-event::undump (primitive-eval (list 'quasiquote expr))))
 
 (define* (simplify e)
   (cond
@@ -167,7 +168,7 @@ previously defined event class."
    ((pair? e) (cons (simplify (car e))
                     (simplify (cdr e))))
    ((ly:stream-event? e)
-    (list 'unquote (list 'make-stream-event (simplify (Stream_event::dump e)))))
+    (list 'unquote (list 'make-stream-event (simplify (ly:stream-event::dump e)))))
    ((ly:music? e)
     (list 'unquote (music->make-music e)))
    ((ly:moment? e)
@@ -182,7 +183,7 @@ previously defined event class."
     (list 'unquote `(ly:make-duration
                      ,(ly:duration-log e)
                      ,(ly:duration-dot-count e)
-                     ,(ly:duration-scale))))
+                     ,(ly:duration-scale e))))
    ((ly:pitch? e)
     (list 'unquote `(ly:make-pitch
                      ,(ly:pitch-octave e)

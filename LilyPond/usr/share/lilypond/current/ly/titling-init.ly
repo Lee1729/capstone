@@ -1,4 +1,7 @@
-\version "2.16.0"
+\version "2.19.80"
+
+#(if (guile-v2)
+  (use-modules (ice-9 curried-definitions)))
 
 slashSeparator = \markup {
   \center-align
@@ -11,7 +14,7 @@ tagline = \markup {
   \pad-to-box #'(0 . 0) #'(0 . 3)
   {  \with-url
 
-    #"http://lilypond.org/"
+    "http://lilypond.org/"
     \line {
 
       %% 2014 = em dash.
@@ -73,14 +76,8 @@ scoreTitleMarkup = \markup { \column {
 #(define (book-first-page? layout props)
    "Return #t iff the current page number, got from @code{props}, is the
 book first one."
-   (define (ancestor layout)
-     "Return the topmost layout ancestor"
-     (let ((parent (ly:output-def-parent layout)))
-       (if (not (ly:output-def? parent))
-           layout
-           (ancestor parent))))
    (= (chain-assoc-get 'page:page-number props -1)
-      (ly:output-def-lookup (ancestor layout) 'first-page-number)))
+      (book-first-page layout props)))
 
 #(define (book-last-page? layout props)
    "Return #t iff the current page number, got from @code{props}, is the
@@ -152,9 +149,7 @@ book last one."
 
 oddHeaderMarkup = \markup
 \fill-line {
-  %% force the header to take some space, otherwise the
-  %% page layout becomes a complete mess.
-  " "
+  ""
   \on-the-fly #not-part-first-page \fromproperty #'header:instrument
   \on-the-fly #print-page-number-check-first \fromproperty #'page:page-number-string
 }
@@ -165,7 +160,7 @@ evenHeaderMarkup = \markup
 \fill-line {
   \on-the-fly #print-page-number-check-first \fromproperty #'page:page-number-string
   \on-the-fly #not-part-first-page \fromproperty #'header:instrument
-  " "
+  ""
 }
 
 oddFooterMarkup = \markup {

@@ -341,7 +341,7 @@ except that:
 """
 
 import sys
-mswindows = (sys.platform in ("win32", "mingw32"))
+mswindows = (sys.platform == "win32")
 
 import os
 import types

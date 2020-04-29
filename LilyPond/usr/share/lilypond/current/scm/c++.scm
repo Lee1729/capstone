@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 1998--2012 Jan Nieuwenhuizen <janneke@gnu.org>
+;;;; Copyright (C) 1998--2015 Jan Nieuwenhuizen <janneke@gnu.org>
 ;;;;                 Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
@@ -33,6 +33,11 @@
   (and (pair? x)
        (index? (car x)) (index? (cdr x))))
 
+(define-public (rational-or-procedure? x)
+  (or
+   (and (rational? x) (exact? x))
+   (procedure? x)))
+
 (define-public (number-or-grob? x)
   (or (ly:grob? x) (number? x)))
 
@@ -49,8 +54,27 @@
   (and (pair? x)
        (ly:moment? (car x)) (ly:moment? (cdr x))))
 
+(define-public (boolean-or-number? x)
+  (or (boolean? x) (number? x)))
+
 (define-public (boolean-or-symbol? x)
   (or (boolean? x) (symbol? x)))
+
+(define-public (key? x)
+  (or (symbol? x) (index? x)))
+
+(define-public (key-list? x)
+  (and (list? x) (every key? x)))
+
+(define-public (key-list-or-music? x)
+  (if (list? x)
+      (every key? x)
+      (ly:music? x)))
+
+(define-public (key-list-or-symbol? x)
+  (if (list? x)
+      (every key? x)
+      (symbol? x)))
 
 (define-public (symbol-list? x)
   (and (list? x) (every symbol? x)))
@@ -88,8 +112,6 @@
 
 (define-public (scheme? x) #t)
 
-(define-public (symbol-or-boolean? x)
-  (or (symbol? x) (boolean? x)))
 
 (define-public (void? x)
   (unspecified? x))

@@ -477,7 +477,7 @@ class LilypondSnippet (Snippet):
         #   @end example
         #   @exampleindent 5
         #
-        # causes ugly results with the DVI backend of texinfo since the
+        # causes ugly results with the TeX backend of texinfo since the
         # default value for @exampleindent isn't 5em but 0.4in (or a smaller
         # value).  Executing the above code changes the environment
         # indentation to an unknown value because we don't know the amount
@@ -644,10 +644,20 @@ printing diff against existing file." % filename)
             if not os.path.isdir (dst_path):
                 os.makedirs (dst_path)
             try:
-                os.link (src, dst)
-            except AttributeError:
-                shutil.copyfile (src, dst)
-            except OSError:
+                if (self.global_options.use_source_file_names
+                        and isinstance (self, LilypondFileSnippet)):
+                    fout = open (dst, 'w')
+                    fin = open (src, 'r')
+                    for line in fin.readlines ():
+                        fout.write (line.replace (self.basename (), self.final_basename ()))
+                    fout.close ()
+                    fin.close ()
+                else:
+                    try:
+                        os.link (src, dst)
+                    except AttributeError:
+                        shutil.copyfile (src, dst)
+            except (IOError, OSError):
                 error (_ ('Could not overwrite file %s') % dst)
                 raise CompileError(self.basename())
 

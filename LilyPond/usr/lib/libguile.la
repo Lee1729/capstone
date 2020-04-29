@@ -5,10 +5,10 @@
 # It is necessary for linking the library.
 
 # The name that we can dlopen(3).
-dlname='../bin/libguile-17.dll'
+dlname='libguile.so.17'
 
 # Names of this library.
-library_names='libguile.dll.a'
+library_names='libguile.so.17.3.1 libguile.so.17 libguile.so'
 
 # The name of the static archive.
 old_library='libguile.a'
@@ -17,10 +17,10 @@ old_library='libguile.a'
 inherited_linker_flags=''
 
 # Libraries that this one depends upon.
-dependency_libs=' -R/home/gub/gub/target/mingw/root/usr/lib -lintl  -lregex  -lgmp  -lws2_32 -lltdl '
+dependency_libs=' -lgmp -lcrypt -lm -lltdl'
 
 # Names of additional weak libraries provided by this library
-weak_library_names='libguile.dll.a'
+weak_library_names=''
 
 # Version information for libguile.
 current=20
@@ -38,4 +38,4 @@ dlopen=''
 dlpreopen=''
 
 # Directory that this library needs to be installed in:
-libdir='/home/gub/gub/target/mingw/installer/lilypond-git.sv.gnu.org--lilypond.git-stable-2.18/usr/lib'
+libdir='/home/gub/NewGub/gub/target/linux-64/installer/lilypond-git.sv.gnu.org--lilypond.git-stable-2.20/usr/lib'

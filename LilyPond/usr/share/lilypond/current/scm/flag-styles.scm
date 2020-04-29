@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 2008--2012 Reinhold Kainhofer <reinhold@kainhofer.com>
+;;;; Copyright (C) 2008--2015 Reinhold Kainhofer <reinhold@kainhofer.com>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
 ;;;; it under the terms of the GNU General Public License as published by
@@ -81,38 +81,32 @@ All lengths are scaled according to the font size of the note."
            (raw-length (if stem-up upflag-length downflag-length))
            (angle (if stem-up upflag-angle downflag-angle))
            (flag-length (+ (* raw-length factor) half-stem-thickness))
-           ;; For flat flags the points to create the stencil using
-           ;; ly:round-filled-polygon need to be different concerning flag-end
-           (flag-end (if (= angle 0)
-                         (cons flag-length (* half-stem-thickness dir))
-                         (polar->rectangular flag-length angle)))
+           (flag-end (polar->rectangular flag-length angle))
            (thickness (* flag-thickness factor))
            (thickness-offset (cons 0 (* -1 thickness dir)))
            (spacing (* -1 flag-spacing factor dir ))
            (start (cons (- half-stem-thickness) (* half-stem-thickness dir)))
-           ;; The points of a round-filled-polygon need to be given in clockwise
-           ;; order, otherwise the polygon will be enlarged by blot-size*2!
-           (points (if stem-up
-                       (list start
-                             flag-end
-                             (offset-add flag-end thickness-offset)
-                             (offset-add start thickness-offset))
-                       (list start
-                             (offset-add start thickness-offset)
-                             (offset-add flag-end thickness-offset)
-                             flag-end)))
+           (raw-points
+             (list
+               '(0 . 0)
+               flag-end
+               (offset-add flag-end thickness-offset)
+               thickness-offset))
+           (points (map (lambda (coord) (offset-add coord start)) raw-points))
            (stencil (ly:round-filled-polygon points half-stem-thickness))
            ;; Log for 1/8 is 3, so we need to subtract 3
            (flag-stencil (buildflag stencil (- log 3) stencil spacing))
            (stroke-style (ly:grob-property grob 'stroke-style)))
-      (if (equal? stroke-style "grace")
-          (add-stroke-straight flag-stencil grob
-                               dir log
-                               stroke-style
-                               flag-end flag-length
-                               thickness
-                               (* half-stem-thickness 2))
-          flag-stencil))))
+      (cond ((eq? (ly:grob-property grob 'style) 'no-flag)
+             empty-stencil)
+            ((equal? stroke-style "grace")
+             (add-stroke-straight flag-stencil grob
+                                  dir log
+                                  stroke-style
+                                  flag-end flag-length
+                                  thickness
+                                  (* half-stem-thickness 2)))
+            (else flag-stencil)))))
 
 (define-public (modern-straight-flag grob)
   "Modern straight flag style (for composers like Stockhausen, Boulez, etc.).
@@ -182,10 +176,12 @@ flag stencil."
          (dir (if (eqv? (ly:grob-property stem-grob 'direction) UP) "u" "d"))
          (flag (retrieve-glyph-flag flag-style dir dir-modifier grob))
          (stroke-style (ly:grob-property grob 'stroke-style)))
-    (if (null? stroke-style)
-        flag
-        (add-stroke-glyph flag grob dir stroke-style flag-style))))
-
+    (cond ((eq? (ly:grob-property grob 'style) 'no-flag)
+           empty-stencil)
+          ((null? stroke-style)
+           flag)
+          (else
+           (add-stroke-glyph flag grob dir stroke-style flag-style)))))
 
 
 (define-public (mensural-flag grob)
@@ -213,19 +209,17 @@ a flag always touches a staff line."
     (create-glyph-flag "mensural" modifier grob)))
 
 
-
-(define-public ((glyph-flag flag-style) grob)
+(define ((glyph-flag flag-style) grob)
   "Simulatesthe default way of generating flags: Look up glyphs
 @code{flags.style[ud][1234]} from the feta font and use it for the flag
 stencil."
   (create-glyph-flag flag-style "" grob))
-
+(export glyph-flag)
 
 
 (define-public (normal-flag grob)
   "Create a default flag."
   (create-glyph-flag "" "" grob))
-
 
 
 (define-public (default-flag grob)
@@ -249,5 +243,6 @@ at will.  The correct way to do this is:
     (cond
      ((equal? flag-style "") (normal-flag grob))
      ((equal? flag-style "mensural") (mensural-flag grob))
-     ((equal? flag-style "no-flag") (no-flag grob))
+     ((equal? flag-style "no-flag") empty-stencil)
      (else ((glyph-flag flag-style) grob)))))
+

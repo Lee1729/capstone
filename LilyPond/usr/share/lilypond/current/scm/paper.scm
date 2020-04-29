@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 2004--2012 Han-Wen Nienhuys <hanwen@xs4all.nl>
+;;;; Copyright (C) 2004--2015 Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
 ;;;; it under the terms of the GNU General Public License as published by
@@ -20,13 +20,15 @@
 
 (define-public (set-paper-dimension-variables mod)
   (module-define! mod 'dimension-variables
-                  '(blot-diameter
+                  '(binding-offset
+                    blot-diameter
                     bottom-margin
                     cm
                     footnote-footer-padding
                     footnote-padding
                     horizontal-shift
                     in
+                    incipit-width
                     indent
                     inner-margin
                     inner-margin-default-scaled
@@ -77,7 +79,7 @@
     (setm! 'text-font-size (* 11 factor))
 
     (setm! 'output-scale ss)
-    (setm! 'fonts (make-century-schoolbook-tree factor))
+    (setm! 'fonts (make-default-fonts-tree factor))
     (setm! 'staff-height staff-height)
     (setm! 'staff-space ss)
 
@@ -104,8 +106,7 @@
 (define-safe-public (set-global-staff-size sz)
   "Set the default staff size, where SZ is thought to be in PT."
   (let* ((current-mod (current-module))
-         (parser (eval 'parser current-mod))
-         (pap (ly:parser-lookup parser '$defaultpaper))
+         (pap (ly:parser-lookup '$defaultpaper))
          (in-layout? (or (module-defined? current-mod 'is-paper)
                          (module-defined? current-mod 'is-layout)))
 

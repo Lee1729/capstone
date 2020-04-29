@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 2005--2012 Han-Wen Nienhuys <hanwen@xs4all.nl>
+;;;; Copyright (C) 2005--2015 Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
 ;;;; it under the terms of the GNU General Public License as published by
@@ -29,7 +29,7 @@ defined in the output modules (@file{output-*.scm})."
     ellipse
     embedded-ps
     embedded-svg
-    end-enclosing-id-node
+    end-group-node
     glyph-string
     grob-cause
     named-glyph
@@ -46,7 +46,7 @@ defined in the output modules (@file{output-*.scm})."
     setcolor
     setrotation
     setscale
-    start-enclosing-id-node
+    start-group-node
     text
     unknown
     url-link
@@ -63,11 +63,12 @@ are used internally in @file{lily/@/stencil-interpret.cc}."
     combine-stencil
     delay-stencil-evaluation
     footnote
-    id
+    output-attributes
     rotate-stencil
     scale-stencil
     translate-stencil
     transparent-stencil
+    with-outline
     ))
 
 (for-each ly:register-stencil-expression

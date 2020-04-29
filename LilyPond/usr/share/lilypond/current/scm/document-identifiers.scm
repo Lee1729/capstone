@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 2006--2012 Han-Wen Nienhuys <hanwen@lilypond.org>
+;;;; Copyright (C) 2006--2015 Han-Wen Nienhuys <hanwen@lilypond.org>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
 ;;;; it under the terms of the GNU General Public License as published by
@@ -22,10 +22,12 @@
       ((name-sym (car music-func-pair))
        (music-func (cdr music-func-pair))
        (func (ly:music-function-extract music-func))
-       (arg-names
-        (map symbol->string
-             (cddr (cadr (procedure-source func)))))
-       (doc (procedure-documentation func))
+       (full-doc (procedure-documentation func))
+       (match-args (and full-doc (string-match "^\\([^)]*\\)\n" full-doc)))
+       (arg-names (if match-args
+                      (with-input-from-string (match:string match-args) read)
+                      (circular-list "arg")))
+       (doc (if match-args (match:suffix match-args) full-doc))
        (sign (ly:music-function-signature music-func))
        (type-names (map (lambda (pred)
                           (if (pair? pred)
@@ -37,14 +39,18 @@
          (map (lambda (arg type) (format #f "@var{~a} ~a" arg type))
               arg-names (cdr type-names)))))
     (format #f
-            "@item @code{~a} ~a ~a~a
-@funindex ~a
+            "@item @code{~a~a} ~a ~a~a
+@funindex ~a~a
 ~a
 "
-            name-sym (car type-names)
-            (if (string-null? signature-str) "" " - ") signature-str
+            (if (eq? (string-ref (symbol->string name-sym) 0) #\\) "" "\\")
             name-sym
-            (if doc
+            (car type-names)
+            (if (string-null? signature-str) "" " - ")
+            signature-str
+            (if (eq? (string-ref (symbol->string name-sym) 0) #\\) "" "\\")
+            name-sym
+            (if (and doc (not (string-null? doc)))
                 doc
                 (begin
                   (ly:warning "music function `~a' not documented." name-sym)

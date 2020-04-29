@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 2000--2012 Jan Nieuwenhuizen <janneke@gnu.org>
+;;;; Copyright (C) 2000--2015 Jan Nieuwenhuizen <janneke@gnu.org>
 ;;;;                 Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
@@ -89,8 +89,7 @@
        (conditional-string-downcase
         (vector-ref #("C" "D" "E" "F" "G" "A" "H" "B") (car n-a))
         lowercase?))
-      (make-normal-size-super-markup
-       (accidental->markup (/ (cdr n-a) 2)))))))
+      (accidental->markup (/ (cdr n-a) 2))))))
 
 (define-safe-public (note-name->german-markup pitch lowercase?)
   (let* ((name (ly:pitch-notename pitch))
@@ -106,7 +105,7 @@
            (list-ref '( "ses" "s" "" "is" "isis") (+ 2 (cdr n-a)))
            (list-ref '("eses" "es" "" "is" "isis") (+ 2 (cdr n-a)))))))))
 
-(define-public ((chord-name->italian-markup re-with-eacute) pitch lowercase?)
+(define ((chord-name->italian-markup re-with-eacute) pitch lowercase?)
   "Return pitch markup for @var{pitch}, using Italian/@/French note names.
 If @var{re-with-eacute} is set to @code{#t}, french `ré' is returned for
 pitch@tie{}D instead of `re'."
@@ -125,6 +124,7 @@ pitch@tie{}D instead of `re'."
         lowercase?))
       (accidental->markup-italian alt)
       ))))
+(export chord-name->italian-markup)
 
 ;; fixme we should standardize on omit-root (or the other one.)
 ;; perhaps the default should also be reversed --hwn
@@ -168,4 +168,4 @@ FOOBAR-MARKUP) if OMIT-ROOT is given and non-false.
 
   (let* ((elts (filter is-event-chord? (ly:music-property seq 'elements)))
          (alist (map chord-to-exception-entry elts)))
-    (filter (lambda (x) (cdr x)) alist)))
+    (filter cdr alist)))

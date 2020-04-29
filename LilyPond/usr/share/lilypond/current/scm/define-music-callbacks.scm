@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 1998--2012 Han-Wen Nienhuys <hanwen@xs4all.nl>
+;;;; Copyright (C) 1998--2015 Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;;                 Jan Nieuwenhuizen <janneke@gnu.org>
 ;;;;                 Neil Puttock <n.puttock@gmail.com>
 ;;;;                 Carl Sorensen <c_sorensen@byu.edu>
@@ -23,16 +23,24 @@
 (define (mm-rest-child-list music)
   "Generate events for multimeasure rests,
 to be used by the sequential-iterator"
-  (let ((location (ly:music-property music 'origin))
-        (duration (ly:music-property music 'duration)))
-    (list (make-music 'BarCheck
-                      'origin location)
-          (make-event-chord (cons (make-music 'MultiMeasureRestEvent
-                                              'origin location
-                                              'duration duration)
-                                  (ly:music-property music 'articulations)))
-          (make-music 'BarCheck
-                      'origin location))))
+  (ly:set-origin! (list (make-music 'BarCheck)
+                        (make-music 'MultiMeasureRestEvent
+                                    (ly:music-deep-copy music))
+                        (make-music 'BarCheck))
+                  music))
+
+(define (make-unfolded-set music)
+  (let ((n (ly:music-property music 'repeat-count))
+        (alts (ly:music-property music 'elements))
+        (body (ly:music-property music 'element)))
+    (cond ((<= n 0) '())
+          ((null? alts) (make-list n body))
+          (else
+           (concatenate
+            (zip (make-list n body)
+                 (append! (make-list (max 0 (- n (length alts)))
+                                     (car alts))
+                          alts)))))))
 
 (define (make-volta-set music)
   (let* ((alts (ly:music-property music 'elements))
@@ -114,4 +122,35 @@ to be used by the sequential-iterator"
                  (ly:context-set-property!
                   context 'measureLength new-measure-length))))
             'Timing)
+           'Score)
+          ;; (make-music 'TimeSignatureEvent music) would always
+          ;; create a Bottom context.  So instead, we just send the
+          ;; event to whatever context may be currently active.  If
+          ;; that is not contained within an existing context with
+          ;; TimeSignatureEngraver at the time \time is iterated, it
+          ;; will drop through the floor which mostly means that
+          ;; point&click and tweaks are not available for any time
+          ;; signatures engraved due to the Timing property changes
+          ;; but without a \time of its own.  This is more a
+          ;; "notification" rather than an "event" (which is always
+          ;; sent to Bottom) but we don't currently have iterators for
+          ;; that.
+          (descend-to-context
+           (make-apply-context
+            (lambda (context)
+              (ly:broadcast (ly:context-event-source context)
+                            (ly:make-stream-event
+                             (ly:make-event-class 'time-signature-event)
+                             (ly:music-mutable-properties music)))))
            'Score))))
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Some MIDI callbacks -- is this a good place for them?
+
+(define-public (breathe::midi-length len context)
+  ;;Shorten by half, or by up to a second, but always by a power of 2
+  (let* ((desired (min (ly:moment-main (seconds->moment 1 context))
+                       (* (ly:moment-main len) 1/2)))
+         (scale (inexact->exact (ceiling (/ (log desired) (log 1/2)))))
+         (breath (ly:make-moment (expt 1/2 scale))))
+    (ly:moment-sub (ly:make-moment (ly:moment-main len)) breath)))

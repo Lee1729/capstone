@@ -1,6 +1,6 @@
 %%%% This file is part of LilyPond, the GNU music typesetter.
 %%%%
-%%%% Copyright (C) 2011--2012 Bertrand Bordage <bordage.bertrand@gmail.com>
+%%%% Copyright (C) 2011--2015 Bertrand Bordage <bordage.bertrand@gmail.com>
 %%%%
 %%%% LilyPond is free software: you can redistribute it and/or modify
 %%%% it under the terms of the GNU General Public License as published by
@@ -19,9 +19,9 @@
 
 #(define (add-text-replacements! alist)
    (set! text-font-defaults
-	 (assoc-set! text-font-defaults 'replacement-alist
-		     (cdaar
-		      (internal-add-text-replacements (list text-font-defaults) alist)))))
+         (assoc-set! text-font-defaults 'replacement-alist
+                     (cdaar
+                      (internal-add-text-replacements (list text-font-defaults) alist)))))
 
 #(define (include-special-characters)
    (add-text-replacements!
@@ -91,6 +91,8 @@
        ("&AA;" . "Å")
        ("&ae;" . "æ")
        ("&AE;" . "Æ")
+       ("&auml;" . "ä")
+       ("&Auml;" . "Ä")
        ("&dh;" . "ð")
        ("&DH;" . "Ð")
        ("&dj;" . "đ")
@@ -103,10 +105,14 @@
        ("&O;" . "Ø")
        ("&oe;" . "œ")
        ("&OE;" . "Œ")
+       ("&ouml;" . "ö")
+       ("&Ouml;" . "Ö")
        ("&s;" . "ſ")
        ("&ss;" . "ß")
        ("&th;" . "þ")
        ("&TH;" . "Þ")
+       ("&uuml;" . "ü")
+       ("&Uuml;" . "Ü")
 
        ;; Mathematical symbols
        ("&plus;" . "+")

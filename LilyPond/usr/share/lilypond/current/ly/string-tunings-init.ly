@@ -1,6 +1,6 @@
 %%%% This file is part of LilyPond, the GNU music typesetter.
 %%%%
-%%%% Copyright (C) 2010--2012 Carl D. Sorensen <c_sorensen@byu.edu>
+%%%% Copyright (C) 2010--2015 Carl D. Sorensen <c_sorensen@byu.edu>
 %%%%
 %%%% LilyPond is free software: you can redistribute it and/or modify
 %%%% it under the terms of the GNU General Public License as published by
@@ -15,7 +15,7 @@
 %%%% You should have received a copy of the GNU General Public License
 %%%% along with LilyPond.  If not, see <http://www.gnu.org/licenses/>.
 
-\version "2.16.0"
+\version "2.19.22"
 
 %%  A stringTuning is a list of pitches ordered by string number
 %%  from 1 to N.
@@ -27,7 +27,7 @@
 %% lowest string number
 
 stringTuning =
-#(define-scheme-function (parser location chord)
+#(define-scheme-function (chord)
    (ly:music?)
    (_i "Convert @var{chord} to a string tuning.
 @var{chord} must be in absolute pitches and should have the highest
@@ -38,11 +38,11 @@ string number (generally the lowest pitch) first.")
 defaultStringTunings = #'()
 
 makeDefaultStringTuning =
-#(define-void-function (parser location symbol pitches) (symbol? list?)
+#(define-void-function (symbol pitches) (symbol? list?)
    (_i "This defines a string tuning @var{symbol} via a list of @var{pitches}.
 The @var{symbol} also gets registered in @code{defaultStringTunings}
 for documentation purposes.")
-   (ly:parser-define! parser symbol pitches)
+   (ly:parser-define! symbol pitches)
    (set! defaultStringTunings (acons symbol pitches defaultStringTunings)))
 
 %% guitar tunings
@@ -71,7 +71,7 @@ for documentation purposes.")
 \makeDefaultStringTuning #'banjo-c-tuning \stringTuning <g' c g b d'>
 \makeDefaultStringTuning #'banjo-modal-tuning \stringTuning <g' d g c' d'>
 \makeDefaultStringTuning #'banjo-open-d-tuning \stringTuning <a' d fis a d'>
-\makeDefaultStringTuning #'banjo-open-dm-tuning \stringTuning <a' d fis a d'>
+\makeDefaultStringTuning #'banjo-open-dm-tuning \stringTuning <a' d f a d'>
 
 %% ukulele tunings
 \makeDefaultStringTuning #'ukulele-tuning \stringTuning <g' c' e' a'>
@@ -89,4 +89,4 @@ defaultStringTunings = #(reverse! defaultStringTunings)
 
 %% convert 5-string banjo tuning to 4-string by removing the 5th string
 four-string-banjo = #(lambda (tuning)
-			 (take tuning 4))
+                         (take tuning 4))

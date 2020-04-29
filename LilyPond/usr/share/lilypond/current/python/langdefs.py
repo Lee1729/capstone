@@ -1,4 +1,4 @@
-#!/home/gub/gub/target/tools/root/usr/bin/python -tt
+#!/home/gub/NewGub/gub/target/tools/root/usr/bin/python -tt
 #-*- coding: utf-8 -*-
 
 """
@@ -59,6 +59,7 @@ def french_html_filter (page):
         body = body.replace (r[0], r[1])
     return page[:body_begin] + body + page[body_end:]
 
+ca = LanguageDef ('ca', 'català')
 cs = LanguageDef ('cs', 'česky', enable_ly_identifier_l10n=False)
 de = LanguageDef ('de', 'deutsch')
 es = LanguageDef ('es', 'español')
@@ -67,14 +68,15 @@ hu = LanguageDef ('hu', 'magyar')
 it = LanguageDef ('it', 'italiano')
 ja = LanguageDef ('ja', '日本語', enable_ly_identifier_l10n=False)
 nl = LanguageDef ('nl', 'nederlands')
+pt = LanguageDef ('pt', 'Português')
 zh = LanguageDef ('zh', '中文', enable_ly_identifier_l10n=False)
 
 # Outdated or broken translations may be disabled
 # (please run 'make doc-clean' before doing that):
 #fr.enabled = False
 
-LANGUAGES = (site, cs, de, es, fr, hu, it, ja, nl, zh)
-WEB_LANGUAGES = (site, cs, de, es, fr, hu, it, ja, nl, zh)
+LANGUAGES = (site, ca, cs, de, es, fr, hu, it, ja, nl, pt, zh)
+WEB_LANGUAGES = (site, ca, cs, de, es, fr, hu, it, ja, nl, pt, zh)
 
 if os.getenv("MAKEWEB") == '1':
     LANGUAGES=WEB_LANGUAGES

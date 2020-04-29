@@ -39,7 +39,7 @@
 #   #endif
 # 
 # If the environment variable CPP is set, use its value instead of the
-# C pre-processor determined at Guile configure-time: "i686-mingw32-gcc -mms-bitfields -E".
+# C pre-processor determined at Guile configure-time: "x86_64-linux-gcc  -E".
 
 # Code:
 
@@ -75,7 +75,7 @@ tempdir="$TMPDIR/guile-snarf.$$"
 (umask 077 && mkdir $tempdir) || exit 1
 temp="$tempdir/tmp"
 
-if [ x"$CPP" = x ] ; then cpp="i686-mingw32-gcc -mms-bitfields -E" ; else cpp="$CPP" ; fi
+if [ x"$CPP" = x ] ; then cpp="x86_64-linux-gcc  -E" ; else cpp="$CPP" ; fi
 
 trap "rm -rf $tempdir" 0 1 2 15
 

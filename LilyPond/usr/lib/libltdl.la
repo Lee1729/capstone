@@ -5,10 +5,10 @@
 # It is necessary for linking the library.
 
 # The name that we can dlopen(3).
-dlname='../bin/libltdl-7.dll'
+dlname='libltdl.so.7'
 
 # Names of this library.
-library_names='libltdl.dll.a'
+library_names='libltdl.so.7.2.0 libltdl.so.7 libltdl.so'
 
 # The name of the static archive.
 old_library='libltdl.a'
@@ -17,10 +17,10 @@ old_library='libltdl.a'
 inherited_linker_flags=''
 
 # Libraries that this one depends upon.
-dependency_libs=''
+dependency_libs=' -ldl'
 
 # Names of additional weak libraries provided by this library
-weak_library_names='libltdl.dll.a'
+weak_library_names=''
 
 # Version information for libltdl.
 current=9
@@ -38,4 +38,4 @@ dlopen=''
 dlpreopen=''
 
 # Directory that this library needs to be installed in:
-libdir='/home/gub/gub/target/mingw/installer/lilypond-git.sv.gnu.org--lilypond.git-stable-2.18/usr/lib'
+libdir='/home/gub/NewGub/gub/target/linux-64/installer/lilypond-git.sv.gnu.org--lilypond.git-stable-2.20/usr/lib'

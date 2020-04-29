@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 2000--2012  Han-Wen Nienhuys <hanwen@xs4all.nl>
+;;;; Copyright (C) 2000--2015  Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
 ;;;; it under the terms of the GNU General Public License as published by
@@ -161,10 +161,12 @@ work than classifying the pitches."
       (let* ((num-markup (make-simple-markup
                           (number->string (pitch-step pitch))))
              (args (list num-markup))
-             (total (if (= (ly:pitch-alteration pitch) 0)
-                        (if (= (pitch-step pitch) 7)
-                            (list (ly:context-property context 'majorSevenSymbol))
-                            args)
+             (major-seven-symbol (ly:context-property context 'majorSevenSymbol))
+             (total
+                    (if (and (= (ly:pitch-alteration pitch) 0)
+                             (= (pitch-step pitch) 7)
+                             (markup? major-seven-symbol))
+                        (list major-seven-symbol)
                         (cons (accidental->markup (step-alteration pitch)) args))))
 
         (make-line-markup total)))

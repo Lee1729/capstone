@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 1998--2012  Han-Wen Nienhuys <hanwen@xs4all.nl>
+;;;; Copyright (C) 1998--2015  Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;;                 Jan Nieuwenhuizen <janneke@gnu.org>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
@@ -59,7 +59,7 @@ found in @file{scm/bar-line.scm}.
    has-span-bar
    kern
    rounded
-   thin-kern
+   segno-kern
    thick-thickness))
 
 (ly:add-interface
@@ -83,7 +83,7 @@ found in @file{scm/bar-line.scm}.
  "The number describing transposition of the clef, placed below
 or above clef sign. Usually this is 8 (octave transposition)
 or 15 (two octaves), but LilyPond allows any integer here."
- '())
+ '(clef-alignments))
 
 (ly:add-interface
  'dynamic-interface
@@ -150,6 +150,11 @@ or 15 (two octaves), but LilyPond allows any integer here."
    common-shortest-duration))
 
 (ly:add-interface
+ 'horizontal-bracket-text-interface
+ "Label for an analysis bracket."
+ '(bracket columns))
+
+(ly:add-interface
  'inline-accidental-interface
  "An inlined accidental (i.e. normal accidentals, cautionary
 accidentals)."
@@ -199,7 +204,8 @@ accidentals)."
  'measure-counter-interface
  "A counter for numbering measures."
  '(columns
-   count-from))
+   count-from
+   spacing-pair))
 
 (ly:add-interface
  'metronome-mark-interface
@@ -217,9 +223,24 @@ accidentals)."
  '())
 
 (ly:add-interface
+ 'number-interface
+ "Numbers."
+ '(number-type))
+
+(ly:add-interface
  'only-prebreak-interface
  "Kill this grob after the line breaking process."
  '())
+
+(ly:add-interface
+ 'outside-staff-axis-group-interface
+ "A vertical axis group on which outside-staff skyline calculations are done."
+ '(outside-staff-placement-directive vertical-skyline-elements))
+
+(ly:add-interface
+ 'outside-staff-interface
+ "A grob that could be placed outside staff."
+ '(outside-staff-horizontal-padding outside-staff-padding outside-staff-priority))
 
 (ly:add-interface
  'parentheses-interface
@@ -301,6 +322,24 @@ interesting enough to maintain a hara-kiri staff."
  'tab-note-head-interface
  "A note head in tablature."
  '(details display-cautionary span-start))
+
+(ly:add-interface
+ 'time-signature-interface
+ "A time signature, in different styles.  The following values for @code{style} are are recognized:
+
+ @table @code
+ @item C
+ 4/4 and 2/2 are typeset as C and struck C, respectively. All other time signatures are written with two digits. The value @code{default} is equivalent to @code{C}.
+ @item neomensural
+ 2/2, 3/2, 2/4, 3/4, 4/4, 6/4, 9/4, 4/8, 6/8, and 9/8 are typeset with neo-mensural style mensuration marks.  All other time signatures are written with two digits.
+ @item mensural
+ 2/2, 3/2, 2/4, 3/4, 4/4, 6/4, 9/4, 4/8, 6/8, and 9/8 are typeset with mensural style mensuration marks.  All other time signatures are written with two digits.
+ @item single-digit
+ All time signatures are typeset with a single digit, e.g., 3/2 is written as 3.
+ @item numbered
+ All time signatures are typeset with two digits.
+ @end table"
+ '(fraction style))
 
 (ly:add-interface
  'trill-spanner-interface

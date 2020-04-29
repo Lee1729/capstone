@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 1998--2012 Jan Nieuwenhuizen <janneke@gnu.org>
+;;;; Copyright (C) 1998--2015 Jan Nieuwenhuizen <janneke@gnu.org>
 ;;;; Han-Wen Nienhuys <hanwen@xs4all.nl>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
@@ -41,7 +41,25 @@
 (define-public PLATFORM
   (string->symbol
    (string-downcase
-    (car (string-tokenize (utsname:sysname (uname)))))))
+    (car (string-tokenize (utsname:sysname (uname)) char-set:letter)))))
+
+;; We don't use (srfi srfi-39) (parameter objects) here because that
+;; does not give us a name/handle to the underlying fluids themselves.
+
+(define %parser (make-fluid))
+(define %location (make-fluid))
+;; No public setters: should not get overwritten in action
+(define-public (*parser*) (fluid-ref %parser))
+(define-public (*location*) (fluid-ref %location))
+;; but properly scoped location should be fine
+(defmacro-public with-location (loc . body)
+  `(with-fluids ((,%location ,loc)) ,@body))
+
+;; It would be nice to convert occurences of parser/location to
+;; (*parser*)/(*location*) using the syncase module but it is utterly
+;; broken in GUILE 1 and would require changing a lot of unrelated
+;; innocuous constructs which just happen to fall apart with
+;; inscrutable error messages.
 
 ;;
 ;; Session-handling variables and procedures.
@@ -68,6 +86,7 @@
 ;;
 
 (define lilypond-declarations '())
+(define lilypond-exports '())
 (define after-session-hook (make-hook))
 
 (define-public (call-after-session thunk)
@@ -75,7 +94,16 @@
       (ly:error (_ "call-after-session used after session start")))
   (add-hook! after-session-hook thunk #t))
 
-(defmacro-public define-session (name value)
+(define (make-session-variable name value)
+  (if (ly:undead? lilypond-declarations)
+      (ly:error (_ "define-session used after session start")))
+  (let ((var (module-make-local-var! (current-module) name)))
+    (if (variable-bound? var)
+        (ly:error (_ "symbol ~S redefined") name))
+    (variable-set! var value)
+    var))
+
+(defmacro define-session (name value)
   "This defines a variable @var{name} with the starting value
 @var{value} that is reinitialized at the start of each session.
 A@tie{}session basically corresponds to one LilyPond file on the
@@ -89,17 +117,22 @@ to their front or replacing them altogether, not by modifying parts of
 them.  It is an error to call @code{define-session} after the first
 session has started."
   (define (add-session-variable name value)
-    (if (ly:undead? lilypond-declarations)
-        (ly:error (_ "define-session used after session start")))
-    (let ((var (make-variable value)))
-      (module-add! (current-module) name var)
-      (set! lilypond-declarations (cons var lilypond-declarations))))
+    (set! lilypond-declarations
+          (cons (make-session-variable name value) lilypond-declarations)))
   `(,add-session-variable ',name ,value))
 
-(defmacro-public define-session-public (name value)
-  "Like @code{define-session}, but also exports @var{name}."
+(defmacro define-session-public (name value)
+  "Like @code{define-session}, but also exports @var{name} into parser modules."
+  (define (add-session-variable name value)
+    (set! lilypond-exports
+          (acons name (make-session-variable name value) lilypond-exports)))
   `(begin
-     (define-session ,name ,value)
+     ;; this is a bit icky: we place the variable right into every
+     ;; parser module so that both set! and define will affect the
+     ;; original variable in the (lily) module.  However, we _also_
+     ;; export it normally from (lily) for the sake of other modules
+     ;; not sharing the name space of the parser.
+     (,add-session-variable ',name ,value)
      (export ,name)))
 
 (define (session-terminate)
@@ -140,7 +173,16 @@ variables to their value after the initial call of @var{thunk}."
                  (module-add! (current-module) (car p) var))))
          (ly:get-undead lilypond-declarations)))
       (begin
+        ;; import all public session variables natively into parser
+        ;; module.  That makes them behave identically under define/set!
+        (for-each (lambda (v)
+                    (module-add! (current-module) (car v) (cdr v)))
+                  lilypond-exports)
+        ;; Initialize first session
         (thunk)
+        ;; lilypond-exports is no longer needed since we will grab its
+        ;; values from (current-module).
+        (set! lilypond-exports #f)
         (set! lilypond-interfaces
               (filter (lambda (m) (eq? 'interface (module-kind m)))
                       (module-uses (current-module))))
@@ -186,6 +228,9 @@ EPS backend.")
     (clip-systems
      #f
      "Generate cut-out snippets of a score.")
+    (crop
+     #f
+     "Match the size of the normal output to the typeset image.")
     (datadir
      #f
      "LilyPond prefix for data files (read-only).")
@@ -227,16 +272,25 @@ configurations.")
      #f
      "Dump output signatures of each system.  Used for
 regression testing.")
+    (embed-source-code
+     #f
+     "Embed the source files inside the generated PDF document.")
     (eps-box-padding
      #f
      "Pad left edge of the output EPS bounding box by
 given amount (in mm).")
+    (font-export-dir
+     #f
+     "Directory for exporting fonts as PostScript files.")
     (gs-load-fonts
      #f
      "Load fonts via Ghostscript.")
     (gs-load-lily-fonts
      #f
      "Load only LilyPond fonts via Ghostscript.")
+    (gs-never-embed-fonts
+     #f
+     "Make Ghostscript embed only TrueType fonts and no other font format.")
     (gui
      #f
      "Run LilyPond from a GUI and redirect stderr to
@@ -275,9 +329,12 @@ file to given string.")
      #f
      "Convert text strings to paths when glyphs belong
 to a music font.")
+    (music-font-encodings
+     #f
+     "Use font encodings and the ps show operator with music fonts.")
     (point-and-click
      #t
-     "Add point & click links to PDF output.")
+     "Add point & click links to PDF and SVG output.")
     (paper-size
      "a4"
      "Set default paper size.")
@@ -344,9 +401,6 @@ PDF previews.")
      "Record Scheme cell usage this many times per
 second.  Dump results to `FILE.stacks' and
 `FILE.graph'.")
-    (trace-scheme-coverage
-     #f
-     "Record coverage of Scheme files in `FILE.cov'.")
     (verbose ,(ly:verbose-output?)
              "Verbose output, i.e. loglevel at least DEBUG (read-only).")
     (warning-as-error
@@ -384,7 +438,6 @@ messages into errors.")
              (srfi srfi-14)
              (scm clip-region)
              (scm memory-trace)
-             (scm coverage)
              (scm safe-utility-defs))
 
 (define-public _ gettext)
@@ -411,8 +464,8 @@ messages into errors.")
 (define-public (ergonomic-simple-format dest . rest)
   "Like ice-9's @code{format}, but without the memory consumption."
   (if (string? dest)
-      (apply simple-format (cons #f (cons dest rest)))
-      (apply simple-format (cons dest rest))))
+      (apply simple-format #f dest rest)
+      (apply simple-format dest rest)))
 
 (define format
   ergonomic-simple-format)
@@ -426,7 +479,7 @@ messages into errors.")
   v)
 
 (define-public (print . args)
-  (apply format (cons (current-output-port) args)))
+  (apply format (current-output-port) args))
 
 
 ;;; General settings.
@@ -436,17 +489,11 @@ messages into errors.")
 
 
 (if (or (ly:get-option 'verbose)
-        (ly:get-option 'trace-memory-frequency)
-        (ly:get-option 'trace-scheme-coverage))
+        (ly:get-option 'trace-memory-frequency))
     (begin
       (ly:set-option 'protected-scheme-parsing #f)
       (debug-enable 'backtrace)
       (read-enable 'positions)))
-
-(if (ly:get-option 'trace-scheme-coverage)
-    (coverage:enable))
-
-(define-public parser #f)
 
 (define music-string-to-path-backends
   '(svg))
@@ -491,7 +538,8 @@ messages into errors.")
             (and (eq? PLATFORM 'windows)
                  (> file-name-length 2)
                  (eq? (string-ref file-name 1) #\:)
-                 (eq? (string-ref file-name 2) #\/))))))
+                 (or (eq? (string-ref file-name 2) #\\)
+                     (eq? (string-ref file-name 2) #\/)))))))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; If necessary, emulate Guile V2 module_export_all! for Guile V1.8.n
@@ -547,9 +595,9 @@ messages into errors.")
     "c++.scm"
     "chord-entry.scm"
     "skyline.scm"
-    "stencil.scm"
-    "define-markup-commands.scm"
     "markup.scm"
+    "define-markup-commands.scm"
+    "stencil.scm"
     "modal-transforms.scm"
     "chord-generic-names.scm"
     "chord-ignatzek-names.scm"
@@ -557,11 +605,11 @@ messages into errors.")
     "part-combiner.scm"
     "autochange.scm"
     "define-music-properties.scm"
+    "time-signature.scm"
     "time-signature-settings.scm"
     "auto-beam.scm"
     "chord-name.scm"
     "bezier-tools.scm"
-    "ly-syntax-constructors.scm"
 
     "define-context-properties.scm"
     "translation-functions.scm"
@@ -658,6 +706,10 @@ messages into errors.")
     (,fraction? . "fraction, as pair")
     (,grob-list? . "list of grobs")
     (,index? . "non-negative integer")
+    (,key? . "index or symbol")
+    (,key-list? . "list of indexes or symbols")
+    (,key-list-or-music? . "key list or music")
+    (,key-list-or-symbol? . "key list or symbol")
     (,markup? . "markup")
     (,markup-command-list? . "markup command list")
     (,markup-list? . "markup list")
@@ -669,6 +721,7 @@ messages into errors.")
     (,number-or-string? . "number or string")
     (,number-pair? . "pair of numbers")
     (,number-pair-list? . "list of number pairs")
+    (,rational-or-procedure? . "an exact rational or procedure")
     (,rhythmic-location? . "rhythmic location")
     (,scheme? . "any type")
     (,string-or-pair? . "string or pair")
@@ -694,6 +747,7 @@ messages into errors.")
     (,ly:font-metric? . "font metric")
     (,ly:grob? . "graphical (layout) object")
     (,ly:grob-array? . "array of grobs")
+    (,ly:grob-properties? . "grob properties")
     (,ly:input-location? . "input location")
     (,ly:item? . "item")
     (,ly:iterator? . "iterator")
@@ -714,7 +768,6 @@ messages into errors.")
     (,ly:pitch? . "pitch")
     (,ly:prob? . "property object")
     (,ly:score? . "score")
-    (,ly:simple-closure? . "simple closure")
     (,ly:skyline? . "skyline")
     (,ly:skyline-pair? . "pair of skylines")
     (,ly:source-file? . "source file")
@@ -724,6 +777,7 @@ messages into errors.")
     (,ly:stream-event? . "stream event")
     (,ly:translator? . "translator")
     (,ly:translator-group? . "translator group")
+    (,ly:undead? . "undead container")
     (,ly:unpure-pure-container? . "unpure/pure container")
     ))
 
@@ -749,8 +803,8 @@ messages into errors.")
 
 (define (dump-profile base last this)
   (let* ((outname (format #f "~a.profile" (dir-basename base ".ly")))
-         (diff (map (lambda (y) (apply - y)) (zip this last))))
-    (ly:progress "\nWriting timing to ~a..." outname)
+         (diff (map - this last)))
+    (ly:progress "\nWriting timing to ~a...\n" outname)
     (format (open-file outname "w")
             "time: ~a\ncells: ~a\n"
             (if (ly:get-option 'dump-cpu-profile)
@@ -907,7 +961,11 @@ PIDs or the number of the process."
             (remove string-null?
                     (append-map
                      (lambda (f)
-                       (string-split (string-delete (ly:gulp-file f) #\cr) #\nl))
+                       (string-split
+                         (if (guile-v2)
+                             (string-delete #\cr (ly:gulp-file f))
+                             (string-delete (ly:gulp-file f) #\cr))
+                         #\nl))
                      files))))
   (if (and (number? (ly:get-option 'job-count))
            (>= (length files) (ly:get-option 'job-count)))
@@ -963,10 +1021,6 @@ PIDs or the number of the process."
   (if (string-or-symbol? (ly:get-option 'log-file))
       (ly:stderr-redirect (format #f "~a.log" (ly:get-option 'log-file)) "w"))
   (let ((failed (lilypond-all files)))
-    (if (ly:get-option 'trace-scheme-coverage)
-        (begin
-          (coverage:show-all (lambda (f)
-                               (string-contains f "lilypond")))))
     (if (pair? failed)
         (begin (ly:error (_ "failed files: ~S") (string-join failed))
                (ly:exit 1 #f))

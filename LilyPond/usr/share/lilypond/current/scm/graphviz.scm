@@ -1,6 +1,6 @@
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
-;;;; Copyright (C) 2007--2012 Joe Neeman <joeneeman@gmail.com>
+;;;; Copyright (C) 2007--2015 Joe Neeman <joeneeman@gmail.com>
 ;;;;
 ;;;; LilyPond is free software: you can redistribute it and/or modify
 ;;;; it under the terms of the GNU General Public License as published by
@@ -69,7 +69,9 @@
               es)
     (for-each (lambda (c)
                 (format out "subgraph cluster_~a {\nlabel= \"~a\"\ncolor=blue\n"
-                        (string-filter (car c) char-alphabetic?)
+                        (if (guile-v2)
+                            (string-filter char-alphabetic? (car c))
+                            (string-filter (car c) char-alphabetic?))
                         (car c))
                 (for-each (lambda (n) (format out "~a\n" n)) (cdr c))
                 (display "}\n" out))

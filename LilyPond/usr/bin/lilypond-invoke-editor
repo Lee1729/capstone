@@ -1,8 +1,8 @@
-#!/home/gub/gub/target/tools/root/usr/bin/guile -s
+#!/home/gub/NewGub/gub/target/tools/root/usr/bin/guile -s
 !#
 ;;;; lilypond-invoke-editor.scm -- Invoke an editor in file:line:column mode
 
-;;;; Copyright (C) 2005--2012 Jan Nieuwenhuizen <janneke@gnu.org>
+;;;; Copyright (C) 2005--2015 Jan Nieuwenhuizen <janneke@gnu.org>
 
 ;;;; This file is part of LilyPond, the GNU music typesetter.
 ;;;;
@@ -30,7 +30,7 @@
  (srfi srfi-14))
 
 (define PROGRAM-NAME "lilypond-invoke-editor")
-(define TOPLEVEL-VERSION "2.18.2")
+(define TOPLEVEL-VERSION "2.20.0")
 (define DATADIR "/usr/share")
 (define COMPILE-TIME-PREFIX
   (format #f "~a/lilypond/~a" DATADIR TOPLEVEL-VERSION))
@@ -93,7 +93,7 @@ Options:
   
   
 (define (dissect-uri uri)
-  (let* ((match (string-match "textedit://(.*):([^:]+):([^:]+):(.*)$" uri)))
+  (let* ((match (string-match "textedit://(.*):([0-9]+):([0-9]+):([0-9]*)$" uri)))
     (if match
 	(list (unquote-uri (match:substring match 1))
 	      (match:substring match 2)
@@ -127,11 +127,14 @@ Options:
 	  (exit 1)))))
 
 (define (run-browser uri)
-  (system
-   (if (getenv "BROWSER")
-       (format #f "~a ~a" (getenv "BROWSER") uri)
-       (format #f "firefox -remote 'OpenURL(~a,new-tab)'" uri))))
-
+  (if (getenv "BROWSER")
+      (system*
+       (getenv "BROWSER")
+       uri)
+      (system*
+       "firefox"
+       "-remote"
+       (format #f "OpenUrl(~a,new-tab)" uri))))
 
 (define (strip-framework-path var)
   (define pat "lilypond/usr")
@@ -151,9 +154,12 @@ Options:
     (if (running-from-gui?)
 	(redirect-port (current-error-port)
 		       (open-file (string-append
-				   (or (getenv "TMP")
-				       (getenv "TEMP")
-				       "/tmp")
+                                   (if (string-match "^(Windows|CYGWIN)"
+                                                     (utsname:sysname (uname)))
+                                       (or (getenv "TMP")
+                                           (getenv "TEMP"))
+                                       (or (getenv "TMPDIR")
+                                           "/tmp"))
 				   "/lilypond-invoke-editor.log") "a")))
     (if (not (= (length files) 1))
 	(begin
