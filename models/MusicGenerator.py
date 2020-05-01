@@ -78,7 +78,7 @@ class MusicGenerator():
     # 필수 사전처리 항목 : lilypond  C:\에 설치 되어있어야함
 
     def notes_to_png(self, run_folder, score, filename):
-        environment.set("lilypondPath", r"LilyPond/usr/bin/lilypond")
+        environment.set("lilypondPath", "LilyPond/usr/bin/lilypond")
 
         for score_num in range(len(score)):
 
