@@ -9,7 +9,6 @@ address, em, i { font-style: normal;}
 h1, h2, h3, h4, h5,h6 {font-size: inherit;}
 a:hover { text-decoration: none; color:inherit;}
 
-
 /*layout*/
 body {font-family: 'Noto Sans KR', sans-serif; font-size: 15px;}
 .wrap {width:100%; margin:0 auto; background: #fff; position: relative;}
@@ -232,4 +231,3 @@ footer .goTop { right: 20px; bottom: 20px;}
     footer ul li:nth-child(2) {font-size: 14px;}
     footer .goTop {font-size:32px; right: 15px; bottom: 15px; }
     }
-    
