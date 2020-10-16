@@ -5,4 +5,4 @@ and Generative Deep Learning  https://github.com/davidADSP/GDL_code
 
 This is our project to graduate from Incheon University.
 The presentation
-https://www.youtube.com/embed/P-stCtU6Pi4
+https://youtu.be/P-stCtU6Pi4
